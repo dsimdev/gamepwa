@@ -58,6 +58,9 @@ class GameStateClass {
     this.statLevels = (data.statLevels ?? {}) as Partial<Record<StatKey, number>>
     this.statResetCount = data.statResetCount ?? 0
     this.respawnCount = data.respawnCount ?? 0
+    // Reconciliar nivel con puntos acumulados (evita save corrupto con level=1 + statPoints>0)
+    const totalEarned = this.statPoints + Object.values(this.statLevels).reduce((s, v) => s + (v ?? 0), 0)
+    if (this.level < 1 + totalEarned) this.level = 1 + totalEarned
   }
 
   persist(): void {
@@ -79,6 +82,7 @@ class GameStateClass {
 
   addStatPoints(n: number): void {
     this.statPoints += n
+    this.persist()  // persistir inmediatamente para no perder el nivel ganado
   }
 
   allocateStat(key: StatKey): boolean {

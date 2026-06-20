@@ -55,6 +55,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private transitionLockUntil = 0
   private dead = false
   private victoryAchieved = false
+  private minibossDefeated = false
+  private dungeonPressure = 0
 
   constructor() {
     super({ key: 'GameScene' })
@@ -64,6 +66,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.mode = data?.mode ?? 'overworld'
     this.dead = false
     this.victoryAchieved = false
+    this.minibossDefeated = false
+    this.dungeonPressure = 0
   }
 
   create() {
@@ -110,7 +114,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.events.on('levelup', () => {
       GameState.level = this.player.progression.level
       GameState.xp = this.player.progression.xp
-      GameState.addStatPoints(STAT_POINTS_PER_LEVEL)
+      GameState.addStatPoints(STAT_POINTS_PER_LEVEL)  // addStatPoints ya llama persist()
     })
 
     this.events.off('statschanged')
@@ -147,6 +151,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     } else {
       this.dungeon = generateDungeon(9)
       this.buildRoom(this.dungeon.start)
+      // Temporizador de presión: cada 30s aumenta dificultad y manda oleada extra
+      this.time.addEvent({
+        delay: 30_000,
+        callback: () => {
+          this.dungeonPressure++
+          this.events.emit('toast', `⚠ Presión ${this.dungeonPressure} — oleada`)
+          if (this.current?.type === 'normal' && !this.current.cleared) this.spawnRoomEnemies()
+        },
+        loop: true,
+      })
     }
 
     this.transitionLockUntil = this.time.now + TRANSITION_LOCK_MS
@@ -245,9 +259,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.clearRoom()
     this.current = room
     this.buildWalls(room)
+    // Indicador de tipo de sala en el techo
     this.buildDoors(room)
     if (!room.cleared) {
       if (room.type === 'boss') this.spawnBoss()
+      else if (room.type === 'miniboss') this.spawnMiniboss()
       else this.spawnRoomEnemies()
     }
     // No hay salida al overworld durante el dungeon — solo al completarlo
@@ -319,14 +335,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   /** Escala de dificultad:
-   *  - Overworld: sube 20% por dungeon superado (depth)
-   *  - Dungeon: sube 20% por depth + 10% por respawnCount (muertes / corridas)
+   *  - Overworld: +20% por dungeon superado (depth)
+   *  - Dungeon: +20% por depth + 10% por respawnCount + 15% por presión de tiempo
    */
   private difficultyScale(): number {
     if (this.mode === 'overworld') {
       return 1 + 0.2 * GameState.depth
     }
-    return 1 + 0.2 * GameState.depth + 0.1 * GameState.respawnCount
+    return 1 + 0.2 * GameState.depth + 0.1 * GameState.respawnCount + 0.15 * this.dungeonPressure
   }
 
   private spawnRoomEnemies(): void {
@@ -353,6 +369,32 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.enemies.add(boss)
     this.boss = boss
     this.createBossBar(ENEMIES[bossKey].name)
+  }
+
+  private spawnMiniboss(): void {
+    const m = new Enemy(this, W / 2, H / 2, ENEMIES['miniboss'], this, this.difficultyScale())
+    m.onDeath = e => this.onMinibossDefeated(e)
+    this.enemies.add(m)
+    this.createBossBar('Centinela (mini-boss)')
+  }
+
+  private onMinibossDefeated(miniboss: Enemy): void {
+    this.minibossDefeated = true
+    this.player.gainXp(miniboss.xpReward)
+    this.clearBossBar()
+
+    // Curar al jugador 50% HP y mana para enfrentar al boss
+    this.player.health.add(Math.floor(this.player.health.max * 0.5))
+    this.player.mana.add(Math.floor(this.player.mana.max * 0.5))
+
+    // Loot: ammo + coins
+    const els: ElementType[] = ['fire', 'electro', 'plasma']
+    els.forEach((el, i) => {
+      this.pickups.add(new Pickup(this, miniboss.x + (i - 1) * 12, miniboss.y + 14, 'ammo', el, ELEMENT_COLORS[el], 10))
+    })
+    this.pickups.add(new Pickup(this, miniboss.x, miniboss.y - 12, 'coin', 'coin', 0xffd700, Phaser.Math.Between(5, 12)))
+
+    this.showCenterText('¡Centinela vencido! — curado 50% — sala del boss desbloqueada', 0xff6600)
   }
 
   private createBossBar(name: string): void {
@@ -521,7 +563,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   consumeAmmo(element: ElementType): boolean {
     // Solo verifica disponibilidad — la deducción ocurre al impactar al enemigo
     if (GameState.ammo[element] > 0) return true
-    this.events.emit('toast', `Sin munición [${ELEMENT_NAMES[element]}]`)
     this.time.delayedCall(0, () => this.autoUnequipRanged(element))
     return false
   }
@@ -537,13 +578,18 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const suggested = this.suggestWeapon()
     const next = suggested ?? makeItem(KNIFE_KEY)
     if (suggested) {
-      const idx = GameState.bag.findIndex(i => i.key === suggested.key)
+      const idx = GameState.bag.findIndex(i => i === suggested)  // ref exacta
       if (idx >= 0) GameState.bag.splice(idx, 1)
     }
     this.player.equip(next)
     GameState.equipped = next
     GameState.persist()
-    this.events.emit('toast', `Sin balas — ${WEAPONS[next.key]?.name ?? 'Filo Nano'}`)
+    const elName = ELEMENT_NAMES[element] ?? element
+    const nextName = WEAPONS[next.key]?.name ?? 'Filo Nano'
+    const msg = suggested
+      ? `Sin ${elName} → ${nextName} equipado`
+      : `Sin ${elName} → sin alternativas, usando ${nextName}`
+    this.events.emit('toast', msg)
   }
 
   private suggestWeapon(): import('../items/types').ItemInstance | undefined {
@@ -733,6 +779,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- Loop ---
 
   update(time: number, delta: number) {
+    // Regen doble en la base del overworld
+    if (this.mode === 'overworld') {
+      const bx = OW_W / 2, by = OW_H / 2
+      this.player.inBase = Phaser.Math.Distance.Between(this.player.x, this.player.y, bx, by) < 90
+    } else {
+      this.player.inBase = false
+    }
+
     this.player.update(time, delta)
     this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
 
@@ -787,6 +841,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       const { dx, dy, opposite } = DIRS[door.dir]
       const next = this.dungeon.rooms.get(keyOf(this.current.x + dx, this.current.y + dy))
       if (!next) return
+      if (next.type === 'boss' && !this.minibossDefeated) {
+        this.events.emit('toast', '⚠ Derrota al Centinela primero')
+        return
+      }
       this.transitionLockUntil = time + TRANSITION_LOCK_MS
       this.buildRoom(next)
       this.placePlayerAtDoor(opposite)

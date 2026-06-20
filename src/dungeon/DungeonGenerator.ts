@@ -49,18 +49,13 @@ export function generateDungeon(targetRooms = 9): Dungeon {
     }
   }
 
-  // Sala de boss: la más lejana de la inicial (distancia Manhattan)
-  let boss = start
-  let maxDist = -1
-  for (const room of rooms.values()) {
-    if (room === start) continue
-    const dist = Math.abs(room.x) + Math.abs(room.y)
-    if (dist > maxDist) {
-      maxDist = dist
-      boss = room
-    }
-  }
-  if (boss !== start) boss.type = 'boss'
+  // Boss: sala más lejana. Miniboss: segunda más lejana (debe pasarse primero)
+  const ranked = [...rooms.values()]
+    .filter(r => r !== start)
+    .sort((a, b) => (Math.abs(b.x) + Math.abs(b.y)) - (Math.abs(a.x) + Math.abs(a.y)))
+
+  if (ranked.length > 0) ranked[0].type = 'boss'
+  if (ranked.length > 1) ranked[1].type = 'miniboss'
 
   return { rooms, start }
 }

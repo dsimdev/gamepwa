@@ -34,6 +34,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   facing = new Phaser.Math.Vector2(0, 1)
+  inBase = false  // GameScene lo activa cuando el jugador está en la base (overworld)
 
   private nextAttackAt = 0
   private invulnUntil = 0
@@ -73,7 +74,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   update(_time: number, delta: number): void {
-    const regenMult = this.inCombat ? COMBAT_REGEN_MULT : 1.0
+    const baseBonus = this.inBase ? 2.0 : 1.0
+    const regenMult = this.inCombat ? COMBAT_REGEN_MULT : baseBonus
     this.health.regenPerSec = this.stats.hpRegen * regenMult
     this.mana.regenPerSec = this.stats.manaRegen * regenMult
     this.health.update(delta)
