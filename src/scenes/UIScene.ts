@@ -18,7 +18,7 @@ const MAX_HEARTS = 10
 
 export class UIScene extends Phaser.Scene {
   private player!: Player
-  private mode: 'base' | 'run' = 'run'
+  private mode: 'overworld' | 'run' = 'run'
   private info = ''
 
   private hearts: Phaser.GameObjects.GameObject[] = []
@@ -36,7 +36,7 @@ export class UIScene extends Phaser.Scene {
     super({ key: 'UIScene' })
   }
 
-  init(data: { player: Player; mode?: 'base' | 'run'; info?: string }) {
+  init(data: { player: Player; mode?: 'overworld' | 'run'; info?: string }) {
     this.player = data.player
     this.mode = data.mode ?? 'run'
     this.info = data.info ?? ''
@@ -57,7 +57,7 @@ export class UIScene extends Phaser.Scene {
 
     // Botones de paneles
     this.addTextButton(width - 4, 16, '[BAG]', () => this.togglePanel('bag'))
-    if (this.mode === 'base') this.addTextButton(width - 4, 26, '[BAÚL]', () => this.togglePanel('stash'))
+    if (this.mode !== 'run') this.addTextButton(width - 4, 26, '[BAÚL]', () => this.togglePanel('stash'))
 
     this.equipText = this.add.text(MARGIN, this.scale.height - 8, '', { fontSize: '7px', color: '#ecf0f1' }).setOrigin(0, 1)
     this.add.text(this.scale.width / 2, 4, this.info, { fontSize: '7px', color: '#95a5a6' }).setOrigin(0.5, 0)

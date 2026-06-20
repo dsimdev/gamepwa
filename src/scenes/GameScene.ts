@@ -23,11 +23,15 @@ const WALL = 14
 const DOOR_GAP = 40
 const TRANSITION_LOCK_MS = 350
 
-type Mode = 'base' | 'run'
-type PortalKind = 'run' | 'base' | 'stash'
+// Overworld (mapa abierto contiguo)
+const OW_W = 640
+const OW_H = 400
+
+type Mode = 'overworld' | 'run'
+type PortalKind = 'dungeon' | 'overworld' | 'stash'
 
 export class GameScene extends Phaser.Scene implements CombatContext, EnemyContext {
-  private mode: Mode = 'base'
+  private mode: Mode = 'overworld'
   private player!: Player
   private inputManager!: InputManager
   private projectiles!: Phaser.Physics.Arcade.Group
@@ -54,21 +58,26 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   init(data: { mode?: Mode }) {
-    this.mode = data?.mode ?? 'base'
+    this.mode = data?.mode ?? 'overworld'
     this.dead = false
   }
 
   create() {
     this.createPlaceholderTextures()
 
+    // Dimensiones del mundo según el modo
+    const worldW = this.mode === 'overworld' ? OW_W : W
+    const worldH = this.mode === 'overworld' ? OW_H : H
+
     // Bioma de la incursión (colores + pool de enemigos)
-    let floorColor = 0x2c3e50 // base
+    let floorColor = 0x35692f // overworld (pasto)
     if (this.mode === 'run') {
       this.biome = BIOMES[Phaser.Utils.Array.GetRandom(BIOME_KEYS)]
       floorColor = this.biome.floorColor
       this.wallColor = this.biome.wallColor
     }
-    this.add.rectangle(W / 2, H / 2, W, H, floorColor).setDepth(-10)
+    this.add.rectangle(worldW / 2, worldH / 2, worldW, worldH, floorColor).setDepth(-10)
+    this.physics.world.setBounds(0, 0, worldW, worldH)
 
     this.projectiles = this.physics.add.group({ classType: Projectile, maxSize: 32, runChildUpdate: true })
     this.enemyProjectiles = this.physics.add.group({ classType: Projectile, maxSize: 48, runChildUpdate: true })
@@ -112,10 +121,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.physics.add.overlap(this.projectiles, this.walls, p => (p as Projectile).kill())
     this.physics.add.overlap(this.enemyProjectiles, this.walls, p => (p as Projectile).kill())
 
-    this.cameras.main.setBounds(0, 0, W, H)
+    this.cameras.main.setBounds(0, 0, worldW, worldH)
 
-    if (this.mode === 'base') {
-      this.buildBase()
+    if (this.mode === 'overworld') {
+      this.cameras.main.startFollow(this.player, true, 0.12, 0.12)
+      this.buildOverworld()
     } else {
       this.dungeon = generateDungeon(9)
       this.buildRoom(this.dungeon.start)
@@ -125,25 +135,40 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const info =
       this.mode === 'run'
         ? `${this.biome?.name ?? ''} · Prof ${GameState.depth}`
-        : `Base · Prof ${GameState.depth}`
+        : `Mundo · Prof ${GameState.depth}`
     this.scene.launch('UIScene', { player: this.player, mode: this.mode, info })
   }
 
-  // --- BASE ---
+  // --- OVERWORLD (mundo abierto) ---
 
-  private buildBase(): void {
-    this.buildBorderWalls()
-    this.player.setPosition(W / 2, H / 2)
+  private buildOverworld(): void {
+    this.buildBorderWalls(OW_W, OW_H)
 
-    // Zona de incursión (derecha) y stash (izquierda)
-    this.addPortal('run', W - 60, H / 2, 0x27ae60, 'INCURSIÓN')
-    this.addPortal('stash', 60, H / 2, 0x3498db, `STASH (${GameState.stash.length})`)
+    // Base: zona segura en el centro del mundo. Spawneás acá.
+    const bx = OW_W / 2
+    const by = OW_H / 2
+    this.player.setPosition(bx, by)
+    this.add.rectangle(bx, by, 72, 72, 0x2c3e50, 0.6).setStrokeStyle(1, 0x5dade2).setDepth(-9)
+    this.add.text(bx, by - 46, 'BASE', { fontSize: '8px', color: '#5dade2' }).setOrigin(0.5)
 
-    this.add.text(W / 2, 6, 'BASE', { fontSize: '8px', color: '#bdc3c7' }).setOrigin(0.5, 0)
+    // Stash (depositar la bag) dentro de la base
+    this.addPortal('stash', bx - 26, by, 0x3498db, 'STASH')
+
+    // Entrada al dungeon (a la derecha del mundo)
+    this.addPortal('dungeon', OW_W - 70, by - 60, 0x8b0000, 'DUNGEON')
+
+    // Landmarks (rocas) para que el mundo tenga referencias y haya que conocerlo
+    const rocks: Array<[number, number, number, number]> = [
+      [120, 90, 40, 40],
+      [OW_W - 140, OW_H - 90, 50, 30],
+      [160, OW_H - 110, 30, 60],
+      [OW_W - 110, 130, 36, 36],
+    ]
+    for (const [x, y, w, h] of rocks) this.addWall(x, y, w, h)
 
     // Feedback del resultado de la incursión anterior
     if (GameState.lastOutcome === 'retreat') {
-      this.showCenterText('Retirada — loot a salvo, +vida', 0x2ecc71)
+      this.showCenterText('Volviste a la base — loot a salvo, +vida', 0x2ecc71)
     } else if (GameState.lastOutcome === 'death') {
       this.showCenterText('Caíste — loot perdido (nivel a salvo)', 0xe74c3c)
     }
@@ -154,6 +179,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const t = this.add
       .text(W / 2, H / 2 - 36, text, { fontSize: '8px', color: `#${color.toString(16)}` })
       .setOrigin(0.5)
+      .setScrollFactor(0)
       .setDepth(3000)
     this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, duration: 1800, ease: 'Cubic.Out', onComplete: () => t.destroy() })
   }
@@ -164,11 +190,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.portalZones.push({ kind, rect: new Phaser.Geom.Rectangle(x - 11, y - 11, 22, 22) })
   }
 
-  private buildBorderWalls(): void {
-    this.addWall(W / 2, WALL / 2, W, WALL)
-    this.addWall(W / 2, H - WALL / 2, W, WALL)
-    this.addWall(WALL / 2, H / 2, WALL, H)
-    this.addWall(W - WALL / 2, H / 2, WALL, H)
+  private buildBorderWalls(w: number, h: number): void {
+    this.addWall(w / 2, WALL / 2, w, WALL)
+    this.addWall(w / 2, h - WALL / 2, w, WALL)
+    this.addWall(WALL / 2, h / 2, WALL, h)
+    this.addWall(w - WALL / 2, h / 2, WALL, h)
   }
 
   // --- RUN: construcción de salas ---
@@ -181,6 +207,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (!room.cleared) {
       if (room.type === 'boss') this.spawnBoss()
       else this.spawnRoomEnemies()
+    }
+    // Salida al overworld: en la sala inicial (la entrada del dungeon)
+    if (this.dungeon && room === this.dungeon.start) {
+      this.addPortal('overworld', W / 2, H - 34, 0x8b5a2b, '')
     }
   }
 
@@ -333,17 +363,17 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.player.setVelocity(0, 0)
   }
 
-  // --- Transiciones de escena (base ↔ run) ---
+  // --- Transiciones de escena (overworld ↔ run) ---
 
-  private goToRun(): void {
+  private enterDungeon(): void {
     // El equipo persiste; la bag arranca como esté (lo no depositado se lleva)
     this.switchScene('run')
   }
 
-  private goToBase(): void {
+  private exitToOverworld(): void {
     this.syncProgression()
     GameState.lastOutcome = 'retreat'
-    this.switchScene('base')
+    this.switchScene('overworld')
   }
 
   private syncProgression(): void {
@@ -506,7 +536,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.time.delayedCall(1400, () => {
       GameState.clearBag() // se pierde la bag; el equipo persiste
       GameState.lastOutcome = 'death'
-      this.switchScene('base')
+      this.switchScene('overworld')
     })
   }
 
@@ -530,8 +560,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const pb = this.player.getBounds()
     for (const z of this.portalZones) {
       if (!Phaser.Geom.Intersects.RectangleToRectangle(pb, z.rect)) continue
-      if (z.kind === 'run') return this.goToRun()
-      if (z.kind === 'base') return this.goToBase()
+      if (z.kind === 'dungeon') return this.enterDungeon()
+      if (z.kind === 'overworld') return this.exitToOverworld()
       if (z.kind === 'stash') this.depositStash()
     }
   }

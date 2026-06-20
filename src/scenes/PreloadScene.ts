@@ -15,6 +15,6 @@ export class PreloadScene extends Phaser.Scene {
   async create() {
     // Cargar progreso guardado (nivel/xp/stash) antes de entrar a la base
     await GameState.load()
-    this.scene.start('GameScene', { mode: 'base' })
+    this.scene.start('GameScene', { mode: 'overworld' })
   }
 }

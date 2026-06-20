@@ -8,7 +8,7 @@ Roguelite ARPG táctil tipo **Soul Knight / Archero con progresión de Diablo**.
 
 ## Pilares de diseño
 
-1. **Roguelite por salas** — dungeons generados proceduralmente (grilla tipo Binding of Isaac). Cada run es distinta. Rejugabilidad > narrativa.
+1. **Overworld + dungeons (híbrido)** — un **mundo abierto** contiguo y persistente (la base adentro, cámara que sigue al jugador) que conecta entradas a **dungeons procedurales** (salas tipo Binding of Isaac). Volvés a la base **caminando por el mundo** (no hay portal de regreso: hay que conocer el mapa). Cada dungeon es distinto (rejugabilidad).
 2. **Mobile-first (táctil)** — PWA pensada para celular: joystick virtual + botones de acción. Teclado como secundario. UI thumb-friendly.
 3. **Combate melee + ranged con coste asimétrico (risk/reward)** — espada (hitbox direccional frontal) + magia/proyectiles. Mecánica central: **el ataque a distancia consume maná; el ataque melee consume vida.** El rango es seguro pero finito; el melee pega más fuerte pero cuesta sangre. Cada elección de combate tiene peso. El melee no puede dejar al jugador en 0 (no hay suicidio por golpe propio). Acción en tiempo real, foco en esquivar y posicionarse.
 4. **Progresión por niveles/stats (Diablo)** — XP, niveles, stats (daño, vida, defensa, etc.), loot con números, fórmulas de daño, balance numérico.
@@ -30,7 +30,7 @@ Mantiene el coste asimétrico del pilar 3: la vida es el recurso del melee, el m
 
 El juego es un **roguelite con hub** (tipo Hades / Children of Morta):
 
-- **Base (hub persistente):** el jugador arranca acá. Es una zona segura, no procedural, que persiste entre runs. Desde la base se sale a la incursión (portal/puerta). **A futuro se le agregan cosas:** mejoras, NPCs, cofres, estaciones.
+- **Base (en el overworld):** zona segura dentro del mundo abierto donde el jugador spawnea. Tiene el stash. Desde el mundo se camina hasta una **entrada de dungeon** para incursionar; al salir/morir se vuelve al overworld y se camina de vuelta a la base. **A futuro:** mejoras, NPCs, cofres, estaciones.
 
 ### Sistema de items (3 cosas distintas)
 
