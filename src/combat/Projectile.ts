@@ -15,8 +15,9 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     super(scene, x, y, 'projectile')
   }
 
-  fire(x: number, y: number, dir: Phaser.Math.Vector2, damage: number): void {
+  fire(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, textureKey = 'projectile'): void {
     this.damage = damage
+    if (this.texture.key !== textureKey) this.setTexture(textureKey)
     this.enableBody(true, x, y, true, true)
     this.setVelocity(dir.x * SPEED, dir.y * SPEED)
     this.setRotation(dir.angle())
