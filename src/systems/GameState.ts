@@ -16,6 +16,9 @@ class GameStateClass {
   // En memoria (no se persiste): arma que llevás encima (B se deriva del arma)
   carriedWeapon = STARTING_WEAPON
 
+  // Resultado de la última incursión, para mostrar feedback al volver a la base
+  lastOutcome: 'retreat' | 'death' | null = null
+
   private store = new IndexedDBSaveStore()
 
   async load(): Promise<void> {

@@ -131,6 +131,22 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.addPortal('stash', 60, H / 2, 0x3498db, `STASH (${GameState.stash.length})`)
 
     this.add.text(W / 2, 6, 'BASE', { fontSize: '8px', color: '#bdc3c7' }).setOrigin(0.5, 0)
+
+    // Feedback del resultado de la incursión anterior
+    if (GameState.lastOutcome === 'retreat') {
+      this.showCenterText('Retirada — loot a salvo, +vida', 0x2ecc71)
+    } else if (GameState.lastOutcome === 'death') {
+      this.showCenterText('Caíste — loot perdido (nivel a salvo)', 0xe74c3c)
+    }
+    GameState.lastOutcome = null
+  }
+
+  private showCenterText(text: string, color: number): void {
+    const t = this.add
+      .text(W / 2, H / 2 - 36, text, { fontSize: '8px', color: `#${color.toString(16)}` })
+      .setOrigin(0.5)
+      .setDepth(3000)
+    this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, duration: 1800, ease: 'Cubic.Out', onComplete: () => t.destroy() })
   }
 
   private addPortal(kind: PortalKind, x: number, y: number, color: number, label: string): void {
@@ -321,6 +337,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private goToBase(): void {
     this.syncProgression()
+    GameState.lastOutcome = 'retreat'
     this.switchScene('base')
   }
 
@@ -477,6 +494,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       .setDepth(3000)
     this.time.delayedCall(1400, () => {
       GameState.resetLoadout()
+      GameState.lastOutcome = 'death'
       this.switchScene('base')
     })
   }
