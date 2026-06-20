@@ -13,10 +13,11 @@ const MARGIN = 6
 const MANA_BAR_W = 56
 const MANA_BAR_H = 4
 const XP_BAR_H = 2
+const MAX_HEARTS = 10
 
 export class UIScene extends Phaser.Scene {
   private player!: Player
-  private hearts: Phaser.GameObjects.Rectangle[] = []
+  private hearts: Phaser.GameObjects.GameObject[] = []
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
   private levelText!: Phaser.GameObjects.Text
@@ -52,7 +53,7 @@ export class UIScene extends Phaser.Scene {
     this.add.rectangle(0, 0, width, XP_BAR_H, 0x2c2c44).setOrigin(0, 0)
     this.xpBar = this.add.rectangle(0, 0, 0, XP_BAR_H, 0xf1c40f).setOrigin(0, 0)
 
-    this.drawHearts(this.player.health.max, this.player.health.max)
+    this.drawHealth(this.player.health.max, this.player.health.max)
 
     // Barra de maná bajo los corazones
     this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x1b2a4a).setOrigin(0, 0)
@@ -85,7 +86,7 @@ export class UIScene extends Phaser.Scene {
   update() {
     const hp = Math.round(this.player.health.current)
     if (hp !== this.lastHp) {
-      this.drawHearts(hp, this.player.health.max)
+      this.drawHealth(hp, this.player.health.max)
       this.lastHp = hp
     }
     this.manaBar.width = MANA_BAR_W * this.player.mana.ratio
@@ -195,16 +196,29 @@ export class UIScene extends Phaser.Scene {
     )
   }
 
-  private drawHearts(current: number, max: number) {
+  private drawHealth(current: number, max: number) {
     this.hearts.forEach(h => h.destroy())
     this.hearts = []
 
-    for (let i = 0; i < max; i++) {
-      const x = MARGIN + i * HEART_GAP
-      const color = i < current ? 0xe74c3c : 0x7f8c8d
-      const heart = this.add.rectangle(x, MARGIN, HEART_SIZE, HEART_SIZE, color)
-      heart.setOrigin(0, 0)
-      this.hearts.push(heart)
+    if (max <= MAX_HEARTS) {
+      for (let i = 0; i < max; i++) {
+        const x = MARGIN + i * HEART_GAP
+        const color = i < current ? 0xe74c3c : 0x7f8c8d
+        this.hearts.push(this.add.rectangle(x, MARGIN, HEART_SIZE, HEART_SIZE, color).setOrigin(0, 0))
+      }
+      return
     }
+
+    // Muchos corazones: barra numérica de vida (escala a cualquier nivel)
+    const bw = 70
+    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw, HEART_SIZE, 0x4a0000).setOrigin(0, 0))
+    this.hearts.push(
+      this.add.rectangle(MARGIN, MARGIN, bw * (current / max), HEART_SIZE, 0xe74c3c).setOrigin(0, 0)
+    )
+    this.hearts.push(
+      this.add
+        .text(MARGIN + bw + 4, MARGIN - 1, `${current}/${max}`, { fontSize: '7px', color: '#e74c3c' })
+        .setOrigin(0, 0)
+    )
   }
 }
