@@ -2,6 +2,10 @@
 
 > ARPG roguelite mobile-first. Documento vivo: se actualiza a medida que el diseño evoluciona.
 
+## Norte / referencia
+
+**Pokémon retro de GameBoy (estructura + estética) con núcleo de Diablo (ARPG de acción).** Mundo top-down explorable con pueblos/rutas/cuevas conectados por un overworld y estética retro pixel, pero combate de acción en tiempo real, loot con stats, durabilidad y niveles. Cáscara cozy de Pokémon GB + tripas de ARPG.
+
 ## Pitch
 
 Roguelite ARPG táctil tipo **Soul Knight / Archero con progresión de Diablo**. El jugador hace *runs* por salas generadas proceduralmente, combatiendo con espada y magia, subiendo de nivel y consiguiendo loot con stats numéricas. Entre runs hay meta-progresión persistente.
