@@ -70,6 +70,7 @@ export class UIScene extends Phaser.Scene {
     this.equipText = addLabel(this, MARGIN, this.scale.height - 14, '', 16, CSS.light).setOrigin(0, 1)
     addLabel(this, this.scale.width / 2, 8, this.info, 14, CSS.light).setOrigin(0.5, 0)
 
+
     this.setupTouchControls()
     this.listenEvents()
   }
@@ -290,6 +291,7 @@ export class UIScene extends Phaser.Scene {
     if (GameState.withdrawFromStash(i)) this.buildInventoryPanel()
     else this.showToast('Bag llena')
   }
+
 
   // --- Feedback ---
 

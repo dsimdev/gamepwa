@@ -92,6 +92,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.player = new Player(this, W / 2, H / 2, this.inputManager, this)
 
     // Cargar equipo y progresión desde el estado global
+    // Si el arma guardada es ranged sin munición, equipar navaja
+    const savedEquip = GameState.equipped
+    const savedDef = WEAPONS[savedEquip.key]
+    const needsAmmo = savedDef?.element && GameState.ammo[savedDef.element] <= 0
+    if (needsAmmo) {
+      const knife = makeItem(KNIFE_KEY)
+      GameState.equipped = knife
+      GameState.persist()
+    }
     this.player.equip(GameState.equipped)
     this.player.applyProgression(GameState.level, GameState.xp)
 

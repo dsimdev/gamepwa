@@ -11,11 +11,12 @@ export default defineConfig({
       manifest: {
         name: 'ARPG Roguelite',
         short_name: 'ARPG',
-        description: 'Roguelite ARPG mobile-first',
+        description: 'Roguelite ARPG cyberpunk — overworld + dungeons',
         theme_color: '#1a1a2e',
-        background_color: '#1a1a2e',
-        display: 'standalone',
+        background_color: '#000000',
+        display: 'fullscreen',
         orientation: 'landscape',
+        start_url: '.',
         icons: [
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
         ],

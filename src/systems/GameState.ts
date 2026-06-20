@@ -139,6 +139,22 @@ class GameStateClass {
     return n
   }
 
+  async resetAll(): Promise<void> {
+    await (this.store as any).clear()
+    this.level = 1
+    this.xp = 0
+    this.depth = 0
+    this.equipped = makeItem(STARTING_WEAPON)
+    this.stash = []
+    this.bag = []
+    this.coins = 0
+    this.ammo = { fire: 0, electro: 0, plasma: 0 }
+    this.statPoints = 0
+    this.statLevels = {}
+    this.statResetCount = 0
+    this.lastOutcome = null
+  }
+
   withdrawFromStash(index: number): boolean {
     if (index < 0 || index >= this.stash.length || this.bagFull) return false
     const [item] = this.stash.splice(index, 1)
