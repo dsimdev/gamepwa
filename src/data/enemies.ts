@@ -3,7 +3,7 @@
  * sin tocar código. Los colores/tamaños son placeholders hasta tener arte.
  */
 
-export type BehaviorKind = 'chaser' | 'shooter'
+export type BehaviorKind = 'chaser' | 'shooter' | 'boss'
 
 export interface EnemyDef {
   key: string
@@ -59,6 +59,19 @@ export const ENEMIES: Record<string, EnemyDef> = {
     size: 12,
     shootRange: 90,
     shootCooldownMs: 1400,
+    projectileDamage: 1,
+  },
+  golem: {
+    key: 'golem',
+    name: 'Gólem',
+    hp: 40,
+    speed: 22,
+    contactDamage: 2,
+    behavior: 'boss',
+    xpReward: 30,
+    color: 0x7d3c98,
+    size: 26,
+    shootCooldownMs: 1800,
     projectileDamage: 1,
   },
 }

@@ -49,5 +49,18 @@ export function generateDungeon(targetRooms = 9): Dungeon {
     }
   }
 
+  // Sala de boss: la más lejana de la inicial (distancia Manhattan)
+  let boss = start
+  let maxDist = -1
+  for (const room of rooms.values()) {
+    if (room === start) continue
+    const dist = Math.abs(room.x) + Math.abs(room.y)
+    if (dist > maxDist) {
+      maxDist = dist
+      boss = room
+    }
+  }
+  if (boss !== start) boss.type = 'boss'
+
   return { rooms, start }
 }

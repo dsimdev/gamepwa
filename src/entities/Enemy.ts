@@ -50,11 +50,17 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.behavior.update(this, player, time, delta)
   }
 
-  /** Llamado por ShooterAI cuando está en rango. Respeta el cooldown. */
-  tryShoot(dir: Phaser.Math.Vector2, time: number): void {
+  /** Dispara una o varias direcciones a la vez. Respeta el cooldown. */
+  volley(dirs: Phaser.Math.Vector2[], time: number): void {
     if (time < this.nextShotAt) return
     this.nextShotAt = time + (this.def.shootCooldownMs ?? 1500)
-    this.context.spawnEnemyProjectile(this.x, this.y, dir, this.def.projectileDamage ?? 1)
+    const dmg = this.def.projectileDamage ?? 1
+    for (const d of dirs) this.context.spawnEnemyProjectile(this.x, this.y, d, dmg)
+  }
+
+  /** Atajo de un solo disparo (usado por ShooterAI). */
+  tryShoot(dir: Phaser.Math.Vector2, time: number): void {
+    this.volley([dir], time)
   }
 
   takeDamage(amount: number, knockbackFrom?: Phaser.Math.Vector2): void {
