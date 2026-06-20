@@ -171,17 +171,21 @@ export class UIScene extends Phaser.Scene {
 
     const ammoObjs: Phaser.GameObjects.GameObject[] = []
     if (isBag) {
+      // Coins en bolsillo — se pierden al morir
+      const coinsLbl = addLabel(this, 28, 60,
+        `◆ ${GameState.coins} coins (se pierden al morir)`, 12, '#e74c3c').setOrigin(0, 0)
+      ammoObjs.push(coinsLbl)
       // Munición disponible por elemento
       const els: Array<import('../data/elements').ElementType> = ['fire', 'electro', 'plasma']
       els.forEach((el, i) => {
-        const lbl = addLabel(this, 28 + i * (width - 56) / 2.5, 62,
+        const lbl = addLabel(this, 28 + i * (width - 56) / 2.5, 76,
           `${ELEMENT_NAMES[el]}: ${GameState.ammo[el]}`, 12, ELEMENT_CSS[el]).setOrigin(0, 0)
         ammoObjs.push(lbl)
       })
     }
 
     const rows: Phaser.GameObjects.GameObject[] = []
-    const itemsStartY = isBag ? 86 : 68
+    const itemsStartY = isBag ? 100 : 68
     if (items.length === 0) {
       rows.push(addLabel(this, width / 2, itemsStartY, 'Vacío', 16, CSS.dim).setOrigin(0.5, 0))
     } else {
