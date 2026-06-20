@@ -4,9 +4,10 @@ import { Enemy } from '../entities/Enemy'
 import { Pickup } from '../entities/Pickup'
 import { InputManager } from '../systems/InputManager'
 import { Projectile } from '../combat/Projectile'
+import { GameState } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
-import { WEAPONS } from '../data/weapons'
-import { SKILLS } from '../data/skills'
+import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
+import { SKILLS, STARTING_SKILL } from '../data/skills'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import { DIRS, keyOf } from '../dungeon/types'
 import type { Dir, Dungeon, RoomData } from '../dungeon/types'
@@ -21,7 +22,11 @@ const WALL = 14
 const DOOR_GAP = 40
 const TRANSITION_LOCK_MS = 350
 
+type Mode = 'base' | 'run'
+type PortalKind = 'run' | 'base' | 'stash'
+
 export class GameScene extends Phaser.Scene implements CombatContext, EnemyContext {
+  private mode: Mode = 'base'
   private player!: Player
   private inputManager!: InputManager
   private projectiles!: Phaser.Physics.Arcade.Group
@@ -31,20 +36,25 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private walls!: Phaser.Physics.Arcade.StaticGroup
   private doorBlocks!: Phaser.Physics.Arcade.StaticGroup
 
-  private dungeon!: Dungeon
-  private current!: RoomData
+  private dungeon?: Dungeon
+  private current?: RoomData
   private doorZones: Array<{ dir: Dir; rect: Phaser.Geom.Rectangle }> = []
+  private portalZones: Array<{ kind: PortalKind; rect: Phaser.Geom.Rectangle }> = []
   private transitionLockUntil = 0
+  private dead = false
 
   constructor() {
     super({ key: 'GameScene' })
   }
 
+  init(data: { mode?: Mode }) {
+    this.mode = data?.mode ?? 'base'
+    this.dead = false
+  }
+
   create() {
     this.createPlaceholderTextures()
-
-    // Suelo persistente (las paredes se redibujan por sala)
-    this.add.rectangle(W / 2, H / 2, W, H, 0x2d5a27).setDepth(-10)
+    this.add.rectangle(W / 2, H / 2, W, H, this.mode === 'base' ? 0x2c3e50 : 0x2d5a27).setDepth(-10)
 
     this.projectiles = this.physics.add.group({ classType: Projectile, maxSize: 32, runChildUpdate: true })
     this.enemyProjectiles = this.physics.add.group({ classType: Projectile, maxSize: 48, runChildUpdate: true })
@@ -56,7 +66,19 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.inputManager = new InputManager(this)
     this.player = new Player(this, W / 2, H / 2, this.inputManager, this)
 
-    // Colisiones (referencian grupos persistentes; el contenido cambia por sala)
+    // Cargar equipo y progresión desde el estado global
+    this.player.equipWeapon(WEAPONS[GameState.carriedWeapon])
+    this.player.equipSkill(SKILLS[GameState.carriedSkill])
+    this.player.applyProgression(GameState.level, GameState.xp)
+
+    // Persistir al subir de nivel (off primero: la escena reusa el emitter al reiniciar)
+    this.events.off('levelup')
+    this.events.on('levelup', () => {
+      GameState.level = this.player.progression.level
+      GameState.xp = this.player.progression.xp
+      GameState.persist()
+    })
+
     this.physics.add.collider(this.player, this.walls)
     this.physics.add.collider(this.player, this.doorBlocks)
     this.physics.add.collider(this.enemies, this.walls)
@@ -66,19 +88,49 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.physics.add.overlap(this.enemyProjectiles, this.player, this.onEnemyProjectileHit, undefined, this)
     this.physics.add.overlap(this.player, this.enemies, this.onEnemyContact, undefined, this)
     this.physics.add.overlap(this.player, this.pickups, this.onPickup, undefined, this)
-    this.physics.add.overlap(this.projectiles, this.walls, (p) => (p as Projectile).kill())
-    this.physics.add.overlap(this.enemyProjectiles, this.walls, (p) => (p as Projectile).kill())
+    this.physics.add.overlap(this.projectiles, this.walls, p => (p as Projectile).kill())
+    this.physics.add.overlap(this.enemyProjectiles, this.walls, p => (p as Projectile).kill())
 
     this.cameras.main.setBounds(0, 0, W, H)
 
-    // Generar dungeon y entrar a la sala inicial
-    this.dungeon = generateDungeon(9)
-    this.buildRoom(this.dungeon.start)
+    if (this.mode === 'base') {
+      this.buildBase()
+    } else {
+      this.dungeon = generateDungeon(9)
+      this.buildRoom(this.dungeon.start)
+    }
 
-    this.scene.launch('UIScene', { player: this.player })
+    this.transitionLockUntil = this.time.now + TRANSITION_LOCK_MS
+    this.scene.launch('UIScene', { player: this.player, mode: this.mode })
   }
 
-  // --- Construcción de salas ---
+  // --- BASE ---
+
+  private buildBase(): void {
+    this.buildBorderWalls()
+    this.player.setPosition(W / 2, H / 2)
+
+    // Zona de incursión (derecha) y stash (izquierda)
+    this.addPortal('run', W - 60, H / 2, 0x27ae60, 'INCURSIÓN')
+    this.addPortal('stash', 60, H / 2, 0x3498db, `STASH (${GameState.stash.length})`)
+
+    this.add.text(W / 2, 6, 'BASE', { fontSize: '8px', color: '#bdc3c7' }).setOrigin(0.5, 0)
+  }
+
+  private addPortal(kind: PortalKind, x: number, y: number, color: number, label: string): void {
+    this.add.rectangle(x, y, 22, 22, color, 0.4).setStrokeStyle(1, color)
+    this.add.text(x, y + 16, label, { fontSize: '6px', color: '#ffffff' }).setOrigin(0.5, 0)
+    this.portalZones.push({ kind, rect: new Phaser.Geom.Rectangle(x - 11, y - 11, 22, 22) })
+  }
+
+  private buildBorderWalls(): void {
+    this.addWall(W / 2, WALL / 2, W, WALL)
+    this.addWall(W / 2, H - WALL / 2, W, WALL)
+    this.addWall(WALL / 2, H / 2, WALL, H)
+    this.addWall(W - WALL / 2, H / 2, WALL, H)
+  }
+
+  // --- RUN: construcción de salas ---
 
   private buildRoom(room: RoomData): void {
     this.clearRoom()
@@ -86,6 +138,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.buildWalls(room)
     this.buildDoors(room)
     if (!room.cleared) this.spawnRoomEnemies()
+    // Portal de regreso a la base en la sala inicial de la incursión
+    if (this.dungeon && room === this.dungeon.start) {
+      this.addPortal('base', W / 2, 44, 0xe67e22, 'VOLVER')
+    }
   }
 
   private clearRoom(): void {
@@ -94,7 +150,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.enemies.clear(true, true)
     this.pickups.clear(true, true)
     this.doorZones = []
-    // Apagar proyectiles activos al cambiar de sala
+    this.portalZones = []
     this.projectiles.getChildren().forEach(p => (p as Projectile).kill())
     this.enemyProjectiles.getChildren().forEach(p => (p as Projectile).kill())
   }
@@ -105,9 +161,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private buildWalls(room: RoomData): void {
-    const seg = (full: number) => (full - DOOR_GAP) / 2 // largo de cada segmento a los lados del hueco
-
-    // Horizontal (arriba/abajo)
+    const seg = (full: number) => (full - DOOR_GAP) / 2
     for (const [dir, cy] of [['n', WALL / 2], ['s', H - WALL / 2]] as const) {
       if (room.doors[dir]) {
         const s = seg(W)
@@ -117,7 +171,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
         this.addWall(W / 2, cy, W, WALL)
       }
     }
-    // Vertical (izquierda/derecha)
     for (const [dir, cx] of [['w', WALL / 2], ['e', W - WALL / 2]] as const) {
       if (room.doors[dir]) {
         const s = seg(H)
@@ -129,7 +182,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
   }
 
-  /** Centro del hueco de cada puerta. */
   private doorCenter(dir: Dir): { x: number; y: number } {
     switch (dir) {
       case 'n': return { x: W / 2, y: WALL / 2 }
@@ -148,10 +200,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       const h = horizontal ? WALL : DOOR_GAP
 
       if (room.cleared) {
-        // Puerta abierta: zona de transición (chequeo geométrico en update)
         this.doorZones.push({ dir, rect: new Phaser.Geom.Rectangle(c.x - w / 2, c.y - h / 2, w, h) })
       } else {
-        // Puerta bloqueada hasta limpiar la sala
         const block = this.doorBlocks.create(c.x, c.y, 'px') as Phaser.Physics.Arcade.Sprite
         block.setDisplaySize(w, h).setTint(0x8b0000).refreshBody()
       }
@@ -161,7 +211,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private spawnRoomEnemies(): void {
     const pool = Object.keys(ENEMIES)
     const count = Phaser.Math.Between(2, 4)
-    const scale = 1 + 0.15 * (this.player.level - 1) // escalan con el nivel del jugador
+    const scale = 1 + 0.15 * (this.player.level - 1)
     for (let i = 0; i < count; i++) {
       const key = Phaser.Utils.Array.GetRandom(pool)
       const x = Phaser.Math.Between(WALL + 20, W - WALL - 20)
@@ -186,7 +236,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
   }
 
-  /** Reposiciona al jugador apenas dentro de la puerta por la que entra. */
   private placePlayerAtDoor(entryDir: Dir): void {
     const inset = 26
     const c = this.doorCenter(entryDir)
@@ -201,13 +250,47 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.player.setVelocity(0, 0)
   }
 
+  // --- Transiciones de escena (base ↔ run) ---
+
+  private goToRun(): void {
+    GameState.resetLoadout() // siempre loadout básico al salir
+    this.switchScene('run')
+  }
+
+  private goToBase(): void {
+    this.syncProgression()
+    this.switchScene('base')
+  }
+
+  private syncProgression(): void {
+    GameState.level = this.player.progression.level
+    GameState.xp = this.player.progression.xp
+    GameState.persist()
+  }
+
+  private switchScene(mode: Mode): void {
+    this.scene.stop('UIScene')
+    this.scene.start('GameScene', { mode })
+  }
+
+  private depositStash(): void {
+    let added = false
+    if (GameState.carriedWeapon !== STARTING_WEAPON) {
+      added = GameState.addToStash({ kind: 'weapon', key: GameState.carriedWeapon }) || added
+    }
+    if (GameState.carriedSkill !== STARTING_SKILL) {
+      added = GameState.addToStash({ kind: 'skill', key: GameState.carriedSkill }) || added
+    }
+    if (added) this.events.emit('stashed', GameState.stash.length)
+  }
+
   // --- Texturas placeholder ---
 
   private createPlaceholderTextures(): void {
     const g = this.make.graphics({ x: 0, y: 0 })
     g.fillStyle(0xffffff)
     g.fillRect(0, 0, 1, 1)
-    g.generateTexture('px', 1, 1) // bloque blanco escalable (paredes/puertas)
+    g.generateTexture('px', 1, 1)
     g.clear()
     g.fillStyle(0x3498db)
     g.fillRect(0, 0, 16, 16)
@@ -221,7 +304,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     g.fillCircle(3, 3, 3)
     g.generateTexture('enemy_projectile', 6, 6)
     g.clear()
-    // Pickup: rombo blanco (se tiñe según el item)
     g.fillStyle(0xffffff)
     g.fillPoints([
       new Phaser.Math.Vector2(4, 0),
@@ -239,12 +321,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     g.destroy()
   }
 
-  // --- CombatContext (jugador) ---
+  // --- CombatContext / EnemyContext ---
 
   spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number): void {
     const proj = this.projectiles.get() as Projectile | null
-    if (!proj) return
-    proj.fire(x, y, dir, damage, 'projectile')
+    if (proj) proj.fire(x, y, dir, damage, 'projectile')
   }
 
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void {
@@ -257,15 +338,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     })
   }
 
-  // --- EnemyContext (enemigos) ---
-
   spawnEnemyProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number): void {
     const proj = this.enemyProjectiles.get() as Projectile | null
-    if (!proj) return
-    proj.fire(x, y, dir, damage, 'enemy_projectile')
+    if (proj) proj.fire(x, y, dir, damage, 'enemy_projectile')
   }
 
-  // --- Handlers de overlap ---
+  // --- Handlers ---
 
   private onPlayerProjectileHit: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (proj, enemy) => {
     const p = proj as Projectile
@@ -291,8 +369,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private onPickup: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, obj) => {
     const pick = obj as Pickup
     if (!pick.active) return
-    if (pick.kind === 'weapon') this.player.equipWeapon(WEAPONS[pick.itemKey])
-    else this.player.equipSkill(SKILLS[pick.itemKey])
+    if (pick.kind === 'weapon') {
+      this.player.equipWeapon(WEAPONS[pick.itemKey])
+      GameState.carriedWeapon = pick.itemKey
+    } else {
+      this.player.equipSkill(SKILLS[pick.itemKey])
+      GameState.carriedSkill = pick.itemKey
+    }
     pick.destroy()
   }
 
@@ -300,35 +383,64 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   update(time: number, delta: number) {
     this.player.update(time, delta)
-    this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
 
-    // Marcar sala limpiada cuando no quedan enemigos vivos
-    if (!this.current.cleared) {
-      const alive = this.enemies.getChildren().some(e => !(e as Enemy).isDead)
-      if (!alive) {
-        this.current.cleared = true
-        this.doorBlocks.clear(true, true)
-        this.buildDoors(this.current) // ahora abre zonas de transición
-      }
+    if (this.mode === 'run') {
+      this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
+      this.updateRoomCleared()
+      this.checkDoorTransitions(time)
+      this.checkDeath()
     }
 
-    this.checkDoorTransitions(time)
+    this.checkPortals()
+  }
+
+  private updateRoomCleared(): void {
+    if (!this.current || this.current.cleared) return
+    const alive = this.enemies.getChildren().some(e => !(e as Enemy).isDead)
+    if (!alive) {
+      this.current.cleared = true
+      this.doorBlocks.clear(true, true)
+      this.buildDoors(this.current)
+    }
+  }
+
+  private checkDeath(): void {
+    if (this.dead || !this.player.isDead) return
+    this.dead = true
+    this.syncProgression() // el nivel persiste; el loot se pierde
+    this.add
+      .text(W / 2, H / 2 - 40, 'MORISTE', { fontSize: '16px', color: '#e74c3c' })
+      .setOrigin(0.5)
+      .setDepth(3000)
+    this.time.delayedCall(1400, () => {
+      GameState.resetLoadout()
+      this.switchScene('base')
+    })
   }
 
   private checkDoorTransitions(time: number): void {
-    if (time < this.transitionLockUntil) return
+    if (time < this.transitionLockUntil || !this.current || !this.dungeon) return
     const pb = this.player.getBounds()
     for (const door of this.doorZones) {
       if (!Phaser.Geom.Intersects.RectangleToRectangle(pb, door.rect)) continue
-
       const { dx, dy, opposite } = DIRS[door.dir]
       const next = this.dungeon.rooms.get(keyOf(this.current.x + dx, this.current.y + dy))
       if (!next) return
-
       this.transitionLockUntil = time + TRANSITION_LOCK_MS
       this.buildRoom(next)
       this.placePlayerAtDoor(opposite)
       return
+    }
+  }
+
+  private checkPortals(): void {
+    if (this.time.now < this.transitionLockUntil) return
+    const pb = this.player.getBounds()
+    for (const z of this.portalZones) {
+      if (!Phaser.Geom.Intersects.RectangleToRectangle(pb, z.rect)) continue
+      if (z.kind === 'run') return this.goToRun()
+      if (z.kind === 'base') return this.goToBase()
+      if (z.kind === 'stash') this.depositStash()
     }
   }
 }

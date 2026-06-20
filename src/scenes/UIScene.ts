@@ -31,6 +31,11 @@ export class UIScene extends Phaser.Scene {
     this.player = data.player
   }
 
+  private listenStash() {
+    this.player.scene.events.off('stashed')
+    this.player.scene.events.on('stashed', (count: number) => this.showToast(`Guardado (${count})`))
+  }
+
   create() {
     const { width } = this.scale
 
@@ -55,6 +60,7 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0, 1)
 
     this.setupTouchControls()
+    this.listenStash()
   }
 
   update() {

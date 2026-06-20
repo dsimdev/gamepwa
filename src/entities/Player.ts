@@ -156,6 +156,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     }
   }
 
+  /** Aplica nivel/XP guardados (al crear el jugador desde el save). */
+  applyProgression(level: number, xp: number): void {
+    this.progression.level = level
+    this.progression.xp = xp
+    this.stats = statsForLevel(level)
+    this.health.max = this.stats.maxHp
+    this.mana.max = this.stats.maxMana
+    this.mana.regenPerSec = this.stats.manaRegen
+    this.health.current = this.health.max
+    this.mana.current = this.mana.max
+  }
+
   gainXp(amount: number): void {
     const gained = this.progression.addXp(amount)
     if (gained > 0) this.onLevelUp()
