@@ -1,13 +1,19 @@
 import Phaser from 'phaser'
 import { Player } from '../entities/Player'
 import { Enemy } from '../entities/Enemy'
+import { Pickup } from '../entities/Pickup'
 import { InputManager } from '../systems/InputManager'
 import { Projectile } from '../combat/Projectile'
 import { ENEMIES } from '../data/enemies'
+import { WEAPONS } from '../data/weapons'
+import { SKILLS } from '../data/skills'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import { DIRS, keyOf } from '../dungeon/types'
 import type { Dir, Dungeon, RoomData } from '../dungeon/types'
 import type { CombatContext, EnemyContext } from '../combat/types'
+
+const DROP_CHANCE = 0.3
+const WEAPON_DROP_WEIGHT = 0.7
 
 const W = 320
 const H = 180
@@ -21,6 +27,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private projectiles!: Phaser.Physics.Arcade.Group
   private enemyProjectiles!: Phaser.Physics.Arcade.Group
   private enemies!: Phaser.Physics.Arcade.Group
+  private pickups!: Phaser.Physics.Arcade.Group
   private walls!: Phaser.Physics.Arcade.StaticGroup
   private doorBlocks!: Phaser.Physics.Arcade.StaticGroup
 
@@ -42,6 +49,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.projectiles = this.physics.add.group({ classType: Projectile, maxSize: 32, runChildUpdate: true })
     this.enemyProjectiles = this.physics.add.group({ classType: Projectile, maxSize: 48, runChildUpdate: true })
     this.enemies = this.physics.add.group()
+    this.pickups = this.physics.add.group()
     this.walls = this.physics.add.staticGroup()
     this.doorBlocks = this.physics.add.staticGroup()
 
@@ -57,6 +65,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.physics.add.overlap(this.projectiles, this.enemies, this.onPlayerProjectileHit, undefined, this)
     this.physics.add.overlap(this.enemyProjectiles, this.player, this.onEnemyProjectileHit, undefined, this)
     this.physics.add.overlap(this.player, this.enemies, this.onEnemyContact, undefined, this)
+    this.physics.add.overlap(this.player, this.pickups, this.onPickup, undefined, this)
     this.physics.add.overlap(this.projectiles, this.walls, (p) => (p as Projectile).kill())
     this.physics.add.overlap(this.enemyProjectiles, this.walls, (p) => (p as Projectile).kill())
 
@@ -83,6 +92,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.walls.clear(true, true)
     this.doorBlocks.clear(true, true)
     this.enemies.clear(true, true)
+    this.pickups.clear(true, true)
     this.doorZones = []
     // Apagar proyectiles activos al cambiar de sala
     this.projectiles.getChildren().forEach(p => (p as Projectile).kill())
@@ -157,8 +167,22 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       const x = Phaser.Math.Between(WALL + 20, W - WALL - 20)
       const y = Phaser.Math.Between(WALL + 20, H - WALL - 20)
       const enemy = new Enemy(this, x, y, ENEMIES[key], this, scale)
-      enemy.onDeath = e => this.player.gainXp(e.xpReward)
+      enemy.onDeath = e => {
+        this.player.gainXp(e.xpReward)
+        this.maybeDropLoot(e.x, e.y)
+      }
       this.enemies.add(enemy)
+    }
+  }
+
+  private maybeDropLoot(x: number, y: number): void {
+    if (Math.random() > DROP_CHANCE) return
+    if (Math.random() < WEAPON_DROP_WEIGHT) {
+      const key = Phaser.Utils.Array.GetRandom(Object.keys(WEAPONS))
+      this.pickups.add(new Pickup(this, x, y, 'weapon', key, WEAPONS[key].color))
+    } else {
+      const key = Phaser.Utils.Array.GetRandom(Object.keys(SKILLS))
+      this.pickups.add(new Pickup(this, x, y, 'skill', key, SKILLS[key].color))
     }
   }
 
@@ -196,6 +220,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     g.fillStyle(0xff5555)
     g.fillCircle(3, 3, 3)
     g.generateTexture('enemy_projectile', 6, 6)
+    g.clear()
+    // Pickup: rombo blanco (se tiñe según el item)
+    g.fillStyle(0xffffff)
+    g.fillPoints([
+      new Phaser.Math.Vector2(4, 0),
+      new Phaser.Math.Vector2(8, 4),
+      new Phaser.Math.Vector2(4, 8),
+      new Phaser.Math.Vector2(0, 4),
+    ], true)
+    g.generateTexture('pickup', 8, 8)
     for (const def of Object.values(ENEMIES)) {
       g.clear()
       g.fillStyle(def.color)
@@ -252,6 +286,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const e = enemy as Enemy
     if (e.isDead) return
     this.player.takeDamage(e.contactDamage)
+  }
+
+  private onPickup: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, obj) => {
+    const pick = obj as Pickup
+    if (!pick.active) return
+    if (pick.kind === 'weapon') this.player.equipWeapon(WEAPONS[pick.itemKey])
+    else this.player.equipSkill(SKILLS[pick.itemKey])
+    pick.destroy()
   }
 
   // --- Loop ---
