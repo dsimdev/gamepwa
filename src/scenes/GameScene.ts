@@ -517,17 +517,93 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const equipped = this.player.equippedItem
     const def = WEAPONS[equipped.key]
     if (def?.element !== element) return
-    const moved = GameState.addToBag(equipped)
-    const knife = makeItem(KNIFE_KEY)
-    this.player.equip(knife)
-    GameState.equipped = knife
+
+    GameState.addToBag(equipped)
+
+    // Busca en la bag la mejor arma ranged con munición según los enemigos en pantalla
+    const suggested = this.suggestWeapon()
+    const next = suggested ?? makeItem(KNIFE_KEY)
+    if (suggested) {
+      const idx = GameState.bag.findIndex(i => i.key === suggested.key)
+      if (idx >= 0) GameState.bag.splice(idx, 1)
+    }
+    this.player.equip(next)
+    GameState.equipped = next
     GameState.persist()
-    this.events.emit('toast', moved ? `Sin balas — ${def.name} a bag` : `Sin balas — navaja`)
+    this.events.emit('toast', `Sin balas — ${WEAPONS[next.key]?.name ?? 'Filo Nano'}`)
+  }
+
+  private suggestWeapon(): import('../items/types').ItemInstance | undefined {
+    const liveEnemies = this.enemies.getChildren().filter(e => !(e as Enemy).isDead) as Enemy[]
+
+    // Puntúa cada arma ranged en bag con ammo según debilidad de los enemigos presentes
+    let bestScore = -Infinity
+    let bestItem: import('../items/types').ItemInstance | undefined
+
+    for (const item of GameState.bag) {
+      const d = WEAPONS[item.key]
+      if (!d?.element || GameState.ammo[d.element] <= 0) continue
+      const el = d.element as ElementType
+      let score = 0
+      if (liveEnemies.length > 0) {
+        for (const e of liveEnemies) {
+          score += (e.def.weaknesses?.[el] ?? 1) - (e.def.resistances?.[el] ?? 0)
+        }
+      } else {
+        score = 1 // sin enemigos: cualquier arma con ammo vale
+      }
+      if (score > bestScore) { bestScore = score; bestItem = item }
+    }
+    return bestItem
   }
 
   spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, element?: ElementType): void {
-    const proj = this.projectiles.get() as Projectile | null
-    if (proj) proj.fire(x, y, dir, damage, 'projectile', element)
+    if (element === 'fire') {
+      // Llamarada: ráfaga cónica corta (3 proyectiles, rango ~90px)
+      const spread = [-22, 0, 22]
+      spread.forEach(deg => {
+        const p = this.projectiles.get() as Projectile | null
+        p?.fire(x, y, dir.clone().rotate(Phaser.Math.DegToRad(deg)), damage, 'projectile', 'fire', 280, 320, 0.8)
+      })
+    } else if (element === 'plasma') {
+      // Cañón plasma: proyectil lento, grande, AoE al impacto
+      const p = this.projectiles.get() as Projectile | null
+      p?.fire(x, y, dir, damage, 'projectile', 'plasma', 95, 2600, 2.4)
+    } else if (element === 'electro') {
+      // Rail electro: rápido, encadena al impacto
+      const p = this.projectiles.get() as Projectile | null
+      p?.fire(x, y, dir, damage, 'projectile', 'electro', 400, 750, 0.9)
+    } else {
+      const p = this.projectiles.get() as Projectile | null
+      p?.fire(x, y, dir, damage, 'projectile', element)
+    }
+  }
+
+  private showAoeEffect(x: number, y: number, radius: number, color: number): void {
+    const g = this.add.graphics()
+    const state = { r: 6, a: 1 }
+    this.tweens.add({
+      targets: state,
+      r: radius,
+      a: 0,
+      duration: 380,
+      ease: 'Cubic.Out',
+      onUpdate: () => {
+        g.clear()
+        g.fillStyle(color, state.a * 0.18)
+        g.fillCircle(x, y, state.r)
+        g.lineStyle(3, color, state.a)
+        g.strokeCircle(x, y, state.r)
+      },
+      onComplete: () => g.destroy(),
+    })
+  }
+
+  private showChainEffect(x1: number, y1: number, x2: number, y2: number): void {
+    const g = this.add.graphics()
+    g.lineStyle(3, ELEMENT_COLORS.electro, 1)
+    g.lineBetween(x1, y1, x2, y2)
+    this.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() })
   }
 
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void {
@@ -551,7 +627,34 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const p = proj as Projectile
     const e = enemy as Enemy
     if (!p.active || e.isDead) return
+
     e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), p.element)
+
+    if (p.element === 'plasma') {
+      const aoeR = 72
+      this.showAoeEffect(p.x, p.y, aoeR, ELEMENT_COLORS.plasma)
+      this.enemies.getChildren().forEach(other => {
+        const o = other as Enemy
+        if (o !== e && !o.isDead) {
+          const dist = Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y)
+          if (dist <= aoeR) o.takeDamage(Math.max(1, Math.round(p.damage * 0.6)), new Phaser.Math.Vector2(p.x, p.y), 'plasma')
+        }
+      })
+    } else if (p.element === 'electro') {
+      const chainR = 120
+      const chainDmg = Math.max(1, Math.round(p.damage * 0.65))
+      this.enemies.getChildren().forEach(other => {
+        const o = other as Enemy
+        if (o !== e && !o.isDead) {
+          const dist = Phaser.Math.Distance.Between(e.x, e.y, o.x, o.y)
+          if (dist <= chainR) {
+            o.takeDamage(chainDmg, new Phaser.Math.Vector2(e.x, e.y), 'electro')
+            this.showChainEffect(e.x, e.y, o.x, o.y)
+          }
+        }
+      })
+    }
+
     p.kill()
   }
 

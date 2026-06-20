@@ -166,14 +166,26 @@ export class UIScene extends Phaser.Scene {
     const head = addLabel(this, width / 2, 20, title, 18, CSS.cyan).setOrigin(0.5, 0)
     const sub  = addLabel(this, width / 2, 44, isBag ? '(tocá para equipar)' : '(tocá para pasar a bag)', 12, CSS.dim).setOrigin(0.5, 0)
 
+    const ammoObjs: Phaser.GameObjects.GameObject[] = []
+    if (isBag) {
+      // Munición disponible por elemento
+      const els: Array<import('../data/elements').ElementType> = ['fire', 'electro', 'plasma']
+      els.forEach((el, i) => {
+        const lbl = addLabel(this, 28 + i * (width - 56) / 2.5, 62,
+          `${ELEMENT_NAMES[el]}: ${GameState.ammo[el]}`, 12, ELEMENT_CSS[el]).setOrigin(0, 0)
+        ammoObjs.push(lbl)
+      })
+    }
+
     const rows: Phaser.GameObjects.GameObject[] = []
+    const itemsStartY = isBag ? 86 : 68
     if (items.length === 0) {
-      rows.push(addLabel(this, width / 2, 88, 'Vacío', 16, CSS.dim).setOrigin(0.5, 0))
+      rows.push(addLabel(this, width / 2, itemsStartY, 'Vacío', 16, CSS.dim).setOrigin(0.5, 0))
     } else {
       items.forEach((item, i) => {
         const def = WEAPONS[item.key]
         const rowColor = def?.element ? ELEMENT_CSS[def.element] : CSS.light
-        const row = addLabel(this, 28, 72 + i * 26, `• ${this.itemLabel(item)}`, 14, rowColor)
+        const row = addLabel(this, 28, itemsStartY + i * 26, `• ${this.itemLabel(item)}`, 14, rowColor)
           .setOrigin(0, 0)
           .setInteractive({ useHandCursor: true })
           .on(Phaser.Input.Events.POINTER_DOWN, () => (isBag ? this.equipFromBag(i) : this.withdraw(i)))
@@ -187,7 +199,7 @@ export class UIScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
       .on(Phaser.Input.Events.POINTER_DOWN, () => this.closePanel())
 
-    this.panel = this.add.container(0, 0, [bg, head, sub, ...rows, eq, close]).setDepth(5000)
+    this.panel = this.add.container(0, 0, [bg, head, sub, ...ammoObjs, ...rows, eq, close]).setDepth(5000)
   }
 
   // --- Panel STATS ---
