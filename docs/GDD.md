@@ -4,7 +4,12 @@
 
 ## Norte / referencia
 
-**Pokémon retro de GameBoy (estructura + estética) con núcleo de Diablo (ARPG de acción).** Mundo top-down explorable con pueblos/rutas/cuevas conectados por un overworld y estética retro pixel, pero combate de acción en tiempo real, loot con stats, durabilidad y niveles. Cáscara cozy de Pokémon GB + tripas de ARPG.
+**Un mundo cyberpunk que se explora con la lógica de un Pokémon y se juega como un Diablo.** Tres ejes:
+- **Estructura del overworld:** estilo Pokémon (mundo top-down explorable, pueblos/rutas/zonas conectadas, NPCs). Es la estructura, no el aspecto visual.
+- **Estética visual:** moderna, **cyberpunk** (neón sobre oscuro, tech, urbano-futurista). No retro.
+- **Núcleo jugable:** Diablo (ARPG de acción en tiempo real, loot, stats, durabilidad, niveles).
+
+Flavor cyberpunk: biomas → distritos/sectores; dungeons → instalaciones/servidores; base → guarida; armas → tech/energía; enemigos → drones/bots/augmentados. Es flavor, no cambia la mecánica.
 
 ## Pitch
 
