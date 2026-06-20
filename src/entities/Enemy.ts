@@ -97,7 +97,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
     this.provoked = true
     this.health.damage(finalDamage)
-    this.setTintFill()
+    this.setTint(0xffffff)  // flash de golpe (Phaser 4: setTintFill removido)
     this.scene.time.delayedCall(70, () => this.clearTint())
 
     if (knockbackFrom) {
