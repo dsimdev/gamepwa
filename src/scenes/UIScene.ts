@@ -9,12 +9,16 @@ const HEART_GAP = 10
 const MARGIN = 6
 const MANA_BAR_W = 56
 const MANA_BAR_H = 4
+const XP_BAR_H = 2
 
 export class UIScene extends Phaser.Scene {
   private player!: Player
   private hearts: Phaser.GameObjects.Rectangle[] = []
   private manaBar!: Phaser.GameObjects.Rectangle
+  private xpBar!: Phaser.GameObjects.Rectangle
+  private levelText!: Phaser.GameObjects.Text
   private lastHp = -1
+  private lastLevel = -1
 
   constructor() {
     super({ key: 'UIScene' })
@@ -25,15 +29,22 @@ export class UIScene extends Phaser.Scene {
   }
 
   create() {
+    const { width } = this.scale
+
+    // Barra de XP (borde superior, ancho completo)
+    this.add.rectangle(0, 0, width, XP_BAR_H, 0x2c2c44).setOrigin(0, 0)
+    this.xpBar = this.add.rectangle(0, 0, 0, XP_BAR_H, 0xf1c40f).setOrigin(0, 0)
+
     this.drawHearts(this.player.health.max, this.player.health.max)
 
     // Barra de maná bajo los corazones
-    this.add
-      .rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x1b2a4a)
-      .setOrigin(0, 0)
-    this.manaBar = this.add
-      .rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x3498db)
-      .setOrigin(0, 0)
+    this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x1b2a4a).setOrigin(0, 0)
+    this.manaBar = this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x3498db).setOrigin(0, 0)
+
+    // Nivel (arriba a la derecha)
+    this.levelText = this.add
+      .text(width - 4, 5, 'Lv 1', { fontSize: '8px', color: '#f1c40f' })
+      .setOrigin(1, 0)
 
     this.setupTouchControls()
   }
@@ -45,17 +56,39 @@ export class UIScene extends Phaser.Scene {
       this.lastHp = hp
     }
     this.manaBar.width = MANA_BAR_W * this.player.mana.ratio
+    this.xpBar.width = this.scale.width * this.player.progression.xpRatio
+
+    if (this.player.level !== this.lastLevel) {
+      if (this.lastLevel !== -1) this.showLevelUp(this.player.level)
+      this.lastLevel = this.player.level
+      this.levelText.setText(`Lv ${this.player.level}`)
+    }
+  }
+
+  private showLevelUp(level: number) {
+    const { width, height } = this.scale
+    const txt = this.add
+      .text(width / 2, height / 2 - 30, `¡NIVEL ${level}!`, { fontSize: '14px', color: '#f1c40f' })
+      .setOrigin(0.5)
+      .setScale(0.5)
+    this.tweens.add({
+      targets: txt,
+      scale: 1,
+      alpha: 0,
+      y: txt.y - 16,
+      duration: 900,
+      ease: 'Cubic.Out',
+      onComplete: () => txt.destroy(),
+    })
   }
 
   private setupTouchControls() {
     const { width, height } = this.scale
 
-    // Joystick: publica el vector analógico al registry
     new VirtualJoystick(this, (x, y) => {
       this.registry.set(INPUT_KEYS.move, { x, y })
     })
 
-    // Botones de acción (mitad derecha), separados para no solaparse
     new ActionButton(
       this,
       width - 20,

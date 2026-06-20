@@ -13,6 +13,8 @@ export interface EnemyDef {
   /** Daño por contacto con el jugador. */
   contactDamage: number
   behavior: BehaviorKind
+  /** XP que otorga al morir. */
+  xpReward: number
   // Placeholder visual
   color: number
   size: number
@@ -30,6 +32,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     speed: 24,
     contactDamage: 1,
     behavior: 'chaser',
+    xpReward: 3,
     color: 0x27ae60,
     size: 12,
   },
@@ -40,6 +43,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     speed: 48,
     contactDamage: 1,
     behavior: 'chaser',
+    xpReward: 2,
     color: 0x8e44ad,
     size: 10,
   },
@@ -50,6 +54,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     speed: 20,
     contactDamage: 1,
     behavior: 'shooter',
+    xpReward: 5,
     color: 0xe67e22,
     size: 12,
     shootRange: 90,

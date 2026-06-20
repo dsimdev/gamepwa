@@ -13,13 +13,18 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   readonly def: EnemyDef
   readonly speed: number
   readonly contactDamage: number
+  readonly xpReward: number
   health: Resource
+
+  /** Callback al morir (la escena lo usa para otorgar XP). Se llama una sola vez. */
+  onDeath?: (enemy: Enemy) => void
 
   private behavior: AIBehavior
   private context: EnemyContext
   private nextShotAt = 0
+  private deathHandled = false
 
-  constructor(scene: Phaser.Scene, x: number, y: number, def: EnemyDef, context: EnemyContext) {
+  constructor(scene: Phaser.Scene, x: number, y: number, def: EnemyDef, context: EnemyContext, scale = 1) {
     super(scene, x, y, `enemy_${def.key}`)
     scene.add.existing(this)
     scene.physics.add.existing(this)
@@ -27,7 +32,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.def = def
     this.speed = def.speed
     this.contactDamage = def.contactDamage
-    this.health = new Resource(def.hp)
+    this.xpReward = Math.round(def.xpReward * scale)
+    this.health = new Resource(Math.max(1, Math.round(def.hp * scale)))
     this.behavior = createBehavior(def.behavior)
     this.context = context
 
@@ -67,6 +73,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   private die(): void {
+    if (!this.deathHandled) {
+      this.deathHandled = true
+      this.onDeath?.(this)
+    }
     this.body!.enable = false
     this.scene.tweens.add({
       targets: this,

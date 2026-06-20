@@ -151,11 +151,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private spawnRoomEnemies(): void {
     const pool = Object.keys(ENEMIES)
     const count = Phaser.Math.Between(2, 4)
+    const scale = 1 + 0.15 * (this.player.level - 1) // escalan con el nivel del jugador
     for (let i = 0; i < count; i++) {
       const key = Phaser.Utils.Array.GetRandom(pool)
       const x = Phaser.Math.Between(WALL + 20, W - WALL - 20)
       const y = Phaser.Math.Between(WALL + 20, H - WALL - 20)
-      this.enemies.add(new Enemy(this, x, y, ENEMIES[key], this))
+      const enemy = new Enemy(this, x, y, ENEMIES[key], this, scale)
+      enemy.onDeath = e => this.player.gainXp(e.xpReward)
+      this.enemies.add(enemy)
     }
   }
 
