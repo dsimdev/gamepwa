@@ -24,7 +24,7 @@ export interface SkillDef {
 export const SKILLS: Record<string, SkillDef> = {
   heal: {
     key: 'heal',
-    name: 'Cura',
+    name: 'Nanocura',
     type: 'heal',
     manaCost: 4,
     healAmount: 2,
@@ -33,7 +33,7 @@ export const SKILLS: Record<string, SkillDef> = {
   },
   block: {
     key: 'block',
-    name: 'Bloqueo',
+    name: 'Escudo',
     type: 'block',
     manaDrainPerSec: 5,
     color: 0x3498db,

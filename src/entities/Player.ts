@@ -58,6 +58,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.setCollideWorldBounds(true)
     this.body!.setSize(12, 12)
     this.body!.setOffset(2, 4)
+    ;(this.body as Phaser.Physics.Arcade.Body).pushable = false // los enemigos no te empujan
   }
 
   get isDead(): boolean {

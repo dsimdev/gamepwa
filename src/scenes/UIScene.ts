@@ -6,6 +6,7 @@ import { Player } from '../entities/Player'
 import { GameState } from '../systems/GameState'
 import { WEAPONS } from '../data/weapons'
 import { isUnbreakable } from '../items/types'
+import { addLabel, COLORS, CSS } from '../ui/theme'
 import type { ItemInstance } from '../items/types'
 
 const HEART_SIZE = 8
@@ -45,30 +46,28 @@ export class UIScene extends Phaser.Scene {
   create() {
     const { width } = this.scale
 
-    this.add.rectangle(0, 0, width, XP_BAR_H, 0x2c2c44).setOrigin(0, 0)
-    this.xpBar = this.add.rectangle(0, 0, 0, XP_BAR_H, 0xf1c40f).setOrigin(0, 0)
+    this.add.rectangle(0, 0, width, XP_BAR_H, 0x1a1a2e).setOrigin(0, 0)
+    this.xpBar = this.add.rectangle(0, 0, 0, XP_BAR_H, COLORS.xp).setOrigin(0, 0)
 
     this.drawHealth(this.player.health.max, this.player.health.max)
 
-    this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x1b2a4a).setOrigin(0, 0)
-    this.manaBar = this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x3498db).setOrigin(0, 0)
+    this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, COLORS.manaDim).setOrigin(0, 0)
+    this.manaBar = this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, COLORS.mana).setOrigin(0, 0)
 
-    this.levelText = this.add.text(width - 4, 5, 'Lv 1', { fontSize: '8px', color: '#f1c40f' }).setOrigin(1, 0)
+    this.levelText = addLabel(this, width - 4, 5, 'Lv 1', 8, CSS.yellow).setOrigin(1, 0)
 
-    // Botones de paneles
     this.addTextButton(width - 4, 16, '[BAG]', () => this.togglePanel('bag'))
-    if (this.mode !== 'run') this.addTextButton(width - 4, 26, '[BAÚL]', () => this.togglePanel('stash'))
+    if (this.mode !== 'run') this.addTextButton(width - 4, 27, '[BAÚL]', () => this.togglePanel('stash'))
 
-    this.equipText = this.add.text(MARGIN, this.scale.height - 8, '', { fontSize: '7px', color: '#ecf0f1' }).setOrigin(0, 1)
-    this.add.text(this.scale.width / 2, 4, this.info, { fontSize: '7px', color: '#95a5a6' }).setOrigin(0.5, 0)
+    this.equipText = addLabel(this, MARGIN, this.scale.height - 7, '', 8, CSS.light).setOrigin(0, 1)
+    addLabel(this, this.scale.width / 2, 4, this.info, 8, CSS.light).setOrigin(0.5, 0)
 
     this.setupTouchControls()
     this.listenEvents()
   }
 
   private addTextButton(x: number, y: number, label: string, onTap: () => void) {
-    this.add
-      .text(x, y, label, { fontSize: '7px', color: '#95a5a6' })
+    addLabel(this, x, y, label, 7, CSS.cyan)
       .setOrigin(1, 0)
       .setInteractive({ useHandCursor: true })
       .on(Phaser.Input.Events.POINTER_DOWN, onTap)
@@ -105,7 +104,6 @@ export class UIScene extends Phaser.Scene {
     this.equipText.setText(`A: ${this.itemLabel(this.player.equippedItem)}   B: ${this.player.skill.name}`)
   }
 
-  /** "Espada 24/30" (o solo nombre si es inquebrable). */
   private itemLabel(item: ItemInstance): string {
     const def = WEAPONS[item.key]
     if (!def) return item.key
@@ -137,19 +135,16 @@ export class UIScene extends Phaser.Scene {
     const items = isBag ? GameState.bag : GameState.stash
     const title = isBag ? `BAG (${items.length}/${GameState.bagCapacity})` : `BAÚL (${items.length})`
 
-    const bg = this.add.rectangle(0, 0, width, height, 0x000000, 0.85).setOrigin(0, 0)
-    const head = this.add.text(width / 2, 10, title, { fontSize: '9px', color: '#f1c40f' }).setOrigin(0.5, 0)
-    const sub = this.add
-      .text(width / 2, 22, isBag ? '(tocá un arma para equipar)' : '(tocá para pasar a la bag)', { fontSize: '6px', color: '#7f8c8d' })
-      .setOrigin(0.5, 0)
+    const bg = this.add.rectangle(0, 0, width, height, 0x0a0a16, 0.92).setOrigin(0, 0)
+    const head = addLabel(this, width / 2, 10, title, 9, CSS.cyan).setOrigin(0.5, 0)
+    const sub = addLabel(this, width / 2, 22, isBag ? '(tocá un arma para equipar)' : '(tocá para pasar a la bag)', 6, CSS.dim).setOrigin(0.5, 0)
 
     const rows: Phaser.GameObjects.GameObject[] = []
     if (items.length === 0) {
-      rows.push(this.add.text(width / 2, 44, 'Vacío', { fontSize: '8px', color: '#7f8c8d' }).setOrigin(0.5, 0))
+      rows.push(addLabel(this, width / 2, 44, 'Vacío', 8, CSS.dim).setOrigin(0.5, 0))
     } else {
       items.forEach((item, i) => {
-        const row = this.add
-          .text(20, 36 + i * 13, `• ${this.itemLabel(item)}`, { fontSize: '8px', color: '#ecf0f1' })
+        const row = addLabel(this, 20, 36 + i * 13, `• ${this.itemLabel(item)}`, 8, CSS.light)
           .setOrigin(0, 0)
           .setInteractive({ useHandCursor: true })
           .on(Phaser.Input.Events.POINTER_DOWN, () => (isBag ? this.equipFromBag(i) : this.withdraw(i)))
@@ -157,11 +152,8 @@ export class UIScene extends Phaser.Scene {
       })
     }
 
-    const eq = this.add
-      .text(width / 2, height - 22, `Equipado: ${this.itemLabel(this.player.equippedItem)}`, { fontSize: '7px', color: '#2ecc71' })
-      .setOrigin(0.5, 0)
-    const close = this.add
-      .text(width / 2, height - 12, 'cerrar', { fontSize: '7px', color: '#95a5a6' })
+    const eq = addLabel(this, width / 2, height - 22, `Equipado: ${this.itemLabel(this.player.equippedItem)}`, 7, CSS.green).setOrigin(0.5, 0)
+    const close = addLabel(this, width / 2, height - 12, 'cerrar', 7, CSS.dim)
       .setOrigin(0.5, 0)
       .setInteractive({ useHandCursor: true })
       .on(Phaser.Input.Events.POINTER_DOWN, () => this.closePanel())
@@ -174,7 +166,7 @@ export class UIScene extends Phaser.Scene {
     if (!item) return
     const prev = this.player.equippedItem
     GameState.bag.splice(i, 1)
-    if (!isUnbreakable(prev.key)) GameState.bag.push(prev) // el arma anterior vuelve a la bag (puños se descartan)
+    if (!isUnbreakable(prev.key)) GameState.bag.push(prev)
     this.player.equip(item)
     GameState.equipped = item
     GameState.persist()
@@ -191,26 +183,23 @@ export class UIScene extends Phaser.Scene {
 
   private showToast(text: string) {
     const { width, height } = this.scale
-    const t = this.add.text(width / 2, height - 50, text, { fontSize: '8px', color: '#ffffff' }).setOrigin(0.5).setDepth(6000)
+    const t = addLabel(this, width / 2, height - 50, text, 8, CSS.light).setOrigin(0.5).setDepth(6000)
     this.tweens.add({ targets: t, y: t.y - 12, alpha: 0, duration: 1000, ease: 'Cubic.Out', onComplete: () => t.destroy() })
   }
 
   private showLevelUp(level: number) {
     const { width, height } = this.scale
-    const txt = this.add
-      .text(width / 2, height / 2 - 30, `¡NIVEL ${level}!`, { fontSize: '14px', color: '#f1c40f' })
-      .setOrigin(0.5)
-      .setScale(0.5)
+    const txt = addLabel(this, width / 2, height / 2 - 30, `¡NIVEL ${level}!`, 14, CSS.yellow).setOrigin(0.5).setScale(0.5)
     this.tweens.add({ targets: txt, scale: 1, alpha: 0, y: txt.y - 16, duration: 900, ease: 'Cubic.Out', onComplete: () => txt.destroy() })
   }
 
   private setupTouchControls() {
     const { width, height } = this.scale
     new VirtualJoystick(this, (x, y) => this.registry.set(INPUT_KEYS.move, { x, y }))
-    new ActionButton(this, width - 20, height - 18, 0xe74c3c, 'A',
+    new ActionButton(this, width - 20, height - 18, COLORS.neonMagenta, 'A',
       () => this.registry.set(INPUT_KEYS.attack, true),
       () => this.registry.set(INPUT_KEYS.attack, false))
-    new ActionButton(this, width - 52, height - 40, 0x3498db, 'B',
+    new ActionButton(this, width - 52, height - 40, COLORS.neonCyan, 'B',
       () => this.registry.set(INPUT_KEYS.cast, true),
       () => this.registry.set(INPUT_KEYS.cast, false))
   }
@@ -222,15 +211,15 @@ export class UIScene extends Phaser.Scene {
     if (max <= MAX_HEARTS) {
       for (let i = 0; i < max; i++) {
         const x = MARGIN + i * HEART_GAP
-        const color = i < current ? 0xe74c3c : 0x7f8c8d
+        const color = i < current ? COLORS.hp : 0x3a3a4a
         this.hearts.push(this.add.rectangle(x, MARGIN, HEART_SIZE, HEART_SIZE, color).setOrigin(0, 0))
       }
       return
     }
 
     const bw = 70
-    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw, HEART_SIZE, 0x4a0000).setOrigin(0, 0))
-    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw * (current / max), HEART_SIZE, 0xe74c3c).setOrigin(0, 0))
-    this.hearts.push(this.add.text(MARGIN + bw + 4, MARGIN - 1, `${current}/${max}`, { fontSize: '7px', color: '#e74c3c' }).setOrigin(0, 0))
+    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw, HEART_SIZE, COLORS.hpDim).setOrigin(0, 0))
+    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw * (current / max), HEART_SIZE, COLORS.hp).setOrigin(0, 0))
+    this.hearts.push(addLabel(this, MARGIN + bw + 4, MARGIN - 1, `${current}/${max}`, 8, CSS.light).setOrigin(0, 0))
   }
 }

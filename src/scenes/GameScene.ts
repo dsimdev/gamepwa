@@ -12,6 +12,7 @@ import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import type { BiomeDef } from '../data/biomes'
 import { DIRS, keyOf } from '../dungeon/types'
+import { addLabel, COLORS, CSS } from '../ui/theme'
 import type { Dir, Dungeon, RoomData } from '../dungeon/types'
 import type { CombatContext, EnemyContext } from '../combat/types'
 
@@ -44,7 +45,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private dungeon?: Dungeon
   private current?: RoomData
   private biome?: BiomeDef
-  private wallColor = 0x4a3728
+  private wallColor: number = COLORS.wallOverworld
   private boss?: Enemy
   private bossBar?: Phaser.GameObjects.Rectangle
   private bossBarBg?: Phaser.GameObjects.Container
@@ -70,7 +71,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const worldH = this.mode === 'overworld' ? OW_H : H
 
     // Bioma de la incursión (colores + pool de enemigos)
-    let floorColor = 0x35692f // overworld (pasto)
+    let floorColor: number = COLORS.floorOverworld // overworld
     if (this.mode === 'run') {
       this.biome = BIOMES[Phaser.Utils.Array.GetRandom(BIOME_KEYS)]
       floorColor = this.biome.floorColor
@@ -116,7 +117,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.physics.add.collider(this.enemies, this.enemies)
     this.physics.add.overlap(this.projectiles, this.enemies, this.onPlayerProjectileHit, undefined, this)
     this.physics.add.overlap(this.enemyProjectiles, this.player, this.onEnemyProjectileHit, undefined, this)
-    this.physics.add.overlap(this.player, this.enemies, this.onEnemyContact, undefined, this)
+    // Collider (no overlap): los enemigos se frenan contra el jugador y atacan por contacto
+    this.physics.add.collider(this.player, this.enemies, this.onEnemyContact, undefined, this)
     this.physics.add.overlap(this.player, this.pickups, this.onPickup, undefined, this)
     this.physics.add.overlap(this.projectiles, this.walls, p => (p as Projectile).kill())
     this.physics.add.overlap(this.enemyProjectiles, this.walls, p => (p as Projectile).kill())
@@ -148,14 +150,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const bx = OW_W / 2
     const by = OW_H / 2
     this.player.setPosition(bx, by)
-    this.add.rectangle(bx, by, 72, 72, 0x2c3e50, 0.6).setStrokeStyle(1, 0x5dade2).setDepth(-9)
-    this.add.text(bx, by - 46, 'BASE', { fontSize: '8px', color: '#5dade2' }).setOrigin(0.5)
+    this.add.rectangle(bx, by, 72, 72, 0x12203a, 0.6).setStrokeStyle(1, COLORS.neonCyan).setDepth(-9)
+    addLabel(this, bx, by - 46, 'BASE', 8, CSS.cyan).setOrigin(0.5)
 
     // Stash (depositar la bag) dentro de la base
-    this.addPortal('stash', bx - 26, by, 0x3498db, 'STASH')
+    this.addPortal('stash', bx - 26, by, COLORS.neonCyan, 'STASH')
 
     // Entrada al dungeon (a la derecha del mundo)
-    this.addPortal('dungeon', OW_W - 70, by - 60, 0x8b0000, 'DUNGEON')
+    this.addPortal('dungeon', OW_W - 70, by - 60, COLORS.neonMagenta, 'DUNGEON')
 
     // Landmarks (rocas) para que el mundo tenga referencias y haya que conocerlo
     const rocks: Array<[number, number, number, number]> = [
@@ -176,8 +178,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private showCenterText(text: string, color: number): void {
-    const t = this.add
-      .text(W / 2, H / 2 - 36, text, { fontSize: '8px', color: `#${color.toString(16)}` })
+    const t = addLabel(this, W / 2, H / 2 - 36, text, 8, `#${color.toString(16).padStart(6, '0')}`)
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(3000)
@@ -185,8 +186,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private addPortal(kind: PortalKind, x: number, y: number, color: number, label: string): void {
-    this.add.rectangle(x, y, 22, 22, color, 0.4).setStrokeStyle(1, color)
-    if (label) this.add.text(x, y + 16, label, { fontSize: '6px', color: '#ffffff' }).setOrigin(0.5, 0)
+    this.add.rectangle(x, y, 22, 22, color, 0.25).setStrokeStyle(1, color)
+    if (label) addLabel(this, x, y + 16, label, 7, `#${color.toString(16).padStart(6, '0')}`).setOrigin(0.5, 0)
     this.portalZones.push({ kind, rect: new Phaser.Geom.Rectangle(x - 11, y - 11, 22, 22) })
   }
 
@@ -314,10 +315,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const barW = W - 80
     const x = 40
     const y = H - 26
-    const bg = this.add.rectangle(x, y, barW, 5, 0x4a0000).setOrigin(0, 0).setScrollFactor(0).setDepth(2000)
-    this.bossBar = this.add.rectangle(x, y, barW, 5, 0xe74c3c).setOrigin(0, 0).setScrollFactor(0).setDepth(2001)
-    const label = this.add
-      .text(W / 2, y - 8, name, { fontSize: '7px', color: '#e74c3c' })
+    const bg = this.add.rectangle(x, y, barW, 5, COLORS.hpDim).setOrigin(0, 0).setScrollFactor(0).setDepth(2000)
+    this.bossBar = this.add.rectangle(x, y, barW, 5, COLORS.neonMagenta).setOrigin(0, 0).setScrollFactor(0).setDepth(2001)
+    const label = addLabel(this, W / 2, y - 8, name, 7, CSS.magenta)
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(2001)
@@ -404,15 +404,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     g.fillRect(0, 0, 1, 1)
     g.generateTexture('px', 1, 1)
     g.clear()
-    g.fillStyle(0x3498db)
+    g.fillStyle(COLORS.player)
     g.fillRect(0, 0, 16, 16)
     g.generateTexture('player', 16, 16)
     g.clear()
-    g.fillStyle(0x5dade2)
+    g.fillStyle(COLORS.projectile)
     g.fillCircle(3, 3, 3)
     g.generateTexture('projectile', 6, 6)
     g.clear()
-    g.fillStyle(0xff5555)
+    g.fillStyle(COLORS.enemyProjectile)
     g.fillCircle(3, 3, 3)
     g.generateTexture('enemy_projectile', 6, 6)
     g.clear()
@@ -529,10 +529,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (this.dead || !this.player.isDead) return
     this.dead = true
     this.syncProgression() // el nivel persiste; el loot se pierde
-    this.add
-      .text(W / 2, H / 2 - 40, 'MORISTE', { fontSize: '16px', color: '#e74c3c' })
-      .setOrigin(0.5)
-      .setDepth(3000)
+    addLabel(this, W / 2, H / 2 - 40, 'MORISTE', 16, CSS.red).setOrigin(0.5).setScrollFactor(0).setDepth(3000)
     this.time.delayedCall(1400, () => {
       GameState.clearBag() // se pierde la bag; el equipo persiste
       GameState.lastOutcome = 'death'
