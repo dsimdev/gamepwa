@@ -88,7 +88,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
       else if (move.x > 0) this.setFlipX(false)
     }
 
-    if (this.inputManager.justAttacked()) this.tryAttack()
+    if (this.inputManager.attackDown) this.tryAttack()
 
     this.setAlpha(this.scene.time.now < this.invulnUntil ? 0.5 : 1)
   }

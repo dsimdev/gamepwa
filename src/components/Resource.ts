@@ -40,7 +40,7 @@ export class Resource {
 
   /** Regeneración por frame. `deltaMs` = delta time del update de Phaser. */
   update(deltaMs: number): void {
-    if (this.regenPerSec > 0 && this.current < this.max) {
+    if (this.regenPerSec > 0 && this.current > 0 && this.current < this.max) {
       this.add((this.regenPerSec * deltaMs) / 1000)
     }
   }
