@@ -8,7 +8,7 @@ import { GameState, STAT_POINTS_PER_LEVEL } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
 import { WEAPONS, LOOTABLE_WEAPONS } from '../data/weapons'
 import { ELEMENT_COLORS, ELEMENT_NAMES } from '../data/elements'
-import { makeItem } from '../items/types'
+import { makeItem, KNIFE_KEY } from '../items/types'
 import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import type { BiomeDef } from '../data/biomes'
@@ -20,15 +20,14 @@ import type { ElementType } from '../data/elements'
 
 const DROP_CHANCE = 0.3
 
-const W = 320
-const H = 180
-const WALL = 14
-const DOOR_GAP = 40
+const W = 640
+const H = 360
+const WALL = 28
+const DOOR_GAP = 80
 const TRANSITION_LOCK_MS = 350
 
-// Overworld (mapa abierto contiguo)
-const OW_W = 640
-const OW_H = 400
+const OW_W = 1280
+const OW_H = 800
 
 type Mode = 'overworld' | 'run'
 type PortalKind = 'dungeon' | 'overworld' | 'stash'
@@ -156,25 +155,23 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const bx = OW_W / 2
     const by = OW_H / 2
     this.player.setPosition(bx, by)
-    this.add.rectangle(bx, by, 72, 72, 0x12203a, 0.6).setStrokeStyle(1, COLORS.neonCyan).setDepth(-9)
-    addLabel(this, bx, by - 46, 'BASE', 8, CSS.cyan).setOrigin(0.5)
+    this.add.rectangle(bx, by, 144, 144, 0x12203a, 0.6).setStrokeStyle(2, COLORS.neonCyan).setDepth(-9)
+    addLabel(this, bx, by - 92, 'BASE', 16, CSS.cyan).setOrigin(0.5)
 
-    // Stash (depositar la bag) dentro de la base
-    this.addPortal('stash', bx - 26, by, COLORS.neonCyan, 'STASH')
+    this.addPortal('stash', bx - 52, by, COLORS.neonCyan, 'STASH')
+    this.addPortal('dungeon', OW_W - 140, by - 120, COLORS.neonMagenta, 'DUNGEON')
 
-    // Entrada al dungeon (a la derecha del mundo)
-    this.addPortal('dungeon', OW_W - 70, by - 60, COLORS.neonMagenta, 'DUNGEON')
-
-    // Landmarks (rocas) para que el mundo tenga referencias y haya que conocerlo
     const rocks: Array<[number, number, number, number]> = [
-      [120, 90, 40, 40],
-      [OW_W - 140, OW_H - 90, 50, 30],
-      [160, OW_H - 110, 30, 60],
-      [OW_W - 110, 130, 36, 36],
+      [240, 180, 80, 80],
+      [OW_W - 280, OW_H - 180, 100, 60],
+      [320, OW_H - 220, 60, 120],
+      [OW_W - 220, 260, 72, 72],
     ]
     for (const [x, y, w, h] of rocks) this.addWall(x, y, w, h)
 
-    // Feedback del resultado de la incursión anterior
+    // Mobs neutrales — dan XP si se provocan, el jugador puede entrenar antes del dungeon
+    this.spawnOverworldMobs()
+
     if (GameState.lastOutcome === 'retreat') {
       this.showCenterText('Volviste a la base — loot a salvo, +vida', 0x2ecc71)
     } else if (GameState.lastOutcome === 'death') {
@@ -183,18 +180,43 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     GameState.lastOutcome = null
   }
 
+  private spawnOverworldMobs(): void {
+    const def = ENEMIES['scavenger']
+    const scale = this.difficultyScale()
+    const count = 6 + Math.min(4, GameState.depth)
+    // Evitar la zona de base (centro)
+    const safeDist = 200
+    const bx = OW_W / 2
+    const by = OW_H / 2
+    let spawned = 0
+    let attempts = 0
+    while (spawned < count && attempts < count * 5) {
+      attempts++
+      const x = Phaser.Math.Between(WALL + 30, OW_W - WALL - 30)
+      const y = Phaser.Math.Between(WALL + 30, OW_H - WALL - 30)
+      if (Math.abs(x - bx) < safeDist && Math.abs(y - by) < safeDist) continue
+      const enemy = new Enemy(this, x, y, def, this, scale)
+      enemy.onDeath = e => {
+        this.player.gainXp(e.xpReward)
+        this.maybeDropLoot(e.x, e.y)
+      }
+      this.enemies.add(enemy)
+      spawned++
+    }
+  }
+
   private showCenterText(text: string, color: number): void {
-    const t = addLabel(this, W / 2, H / 2 - 36, text, 8, `#${color.toString(16).padStart(6, '0')}`)
+    const t = addLabel(this, W / 2, H / 2 - 72, text, 16, `#${color.toString(16).padStart(6, '0')}`)
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(3000)
-    this.tweens.add({ targets: t, y: t.y - 14, alpha: 0, duration: 1800, ease: 'Cubic.Out', onComplete: () => t.destroy() })
+    this.tweens.add({ targets: t, y: t.y - 28, alpha: 0, duration: 1800, ease: 'Cubic.Out', onComplete: () => t.destroy() })
   }
 
   private addPortal(kind: PortalKind, x: number, y: number, color: number, label: string): void {
-    this.add.rectangle(x, y, 22, 22, color, 0.25).setStrokeStyle(1, color)
-    if (label) addLabel(this, x, y + 16, label, 7, `#${color.toString(16).padStart(6, '0')}`).setOrigin(0.5, 0)
-    this.portalZones.push({ kind, rect: new Phaser.Geom.Rectangle(x - 11, y - 11, 22, 22) })
+    this.add.rectangle(x, y, 44, 44, color, 0.25).setStrokeStyle(2, color)
+    if (label) addLabel(this, x, y + 28, label, 14, `#${color.toString(16).padStart(6, '0')}`).setOrigin(0.5, 0)
+    this.portalZones.push({ kind, rect: new Phaser.Geom.Rectangle(x - 22, y - 22, 44, 44) })
   }
 
   private buildBorderWalls(w: number, h: number): void {
@@ -215,9 +237,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       if (room.type === 'boss') this.spawnBoss()
       else this.spawnRoomEnemies()
     }
-    // Salida al overworld: en la sala inicial (la entrada del dungeon)
     if (this.dungeon && room === this.dungeon.start) {
-      this.addPortal('overworld', W / 2, H - 34, 0x8b5a2b, '')
+      this.addPortal('overworld', W / 2, H - 68, 0x8b5a2b, '')
     }
   }
 
@@ -318,12 +339,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private createBossBar(name: string): void {
-    const barW = W - 80
-    const x = 40
-    const y = H - 26
-    const bg = this.add.rectangle(x, y, barW, 5, COLORS.hpDim).setOrigin(0, 0).setScrollFactor(0).setDepth(2000)
-    this.bossBar = this.add.rectangle(x, y, barW, 5, COLORS.neonMagenta).setOrigin(0, 0).setScrollFactor(0).setDepth(2001)
-    const label = addLabel(this, W / 2, y - 8, name, 7, CSS.magenta)
+    const barW = W - 160
+    const x = 80
+    const y = H - 52
+    const bg = this.add.rectangle(x, y, barW, 10, COLORS.hpDim).setOrigin(0, 0).setScrollFactor(0).setDepth(2000)
+    this.bossBar = this.add.rectangle(x, y, barW, 10, COLORS.neonMagenta).setOrigin(0, 0).setScrollFactor(0).setDepth(2001)
+    const label = addLabel(this, W / 2, y - 16, name, 14, CSS.magenta)
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(2001)
@@ -379,7 +400,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private placePlayerAtDoor(entryDir: Dir): void {
-    const inset = 26
+    const inset = 52
     const c = this.doorCenter(entryDir)
     const offset: Record<Dir, [number, number]> = {
       n: [0, inset],
@@ -434,35 +455,33 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     g.generateTexture('px', 1, 1)
     g.clear()
     g.fillStyle(COLORS.player)
-    g.fillRect(0, 0, 16, 16)
-    g.generateTexture('player', 16, 16)
+    g.fillRect(0, 0, 32, 32)
+    g.generateTexture('player', 32, 32)
     g.clear()
     g.fillStyle(COLORS.projectile)
-    g.fillCircle(3, 3, 3)
-    g.generateTexture('projectile', 6, 6)
+    g.fillCircle(6, 6, 6)
+    g.generateTexture('projectile', 12, 12)
     g.clear()
     g.fillStyle(COLORS.enemyProjectile)
-    g.fillCircle(3, 3, 3)
-    g.generateTexture('enemy_projectile', 6, 6)
+    g.fillCircle(6, 6, 6)
+    g.generateTexture('enemy_projectile', 12, 12)
     g.clear()
     g.fillStyle(0xffffff)
     g.fillPoints([
-      new Phaser.Math.Vector2(4, 0),
-      new Phaser.Math.Vector2(8, 4),
-      new Phaser.Math.Vector2(4, 8),
-      new Phaser.Math.Vector2(0, 4),
+      new Phaser.Math.Vector2(8, 0),
+      new Phaser.Math.Vector2(16, 8),
+      new Phaser.Math.Vector2(8, 16),
+      new Phaser.Math.Vector2(0, 8),
     ], true)
-    g.generateTexture('pickup', 8, 8)
-    // Ammo pickup: small circle (tinted by element at spawn time)
+    g.generateTexture('pickup', 16, 16)
     g.clear()
     g.fillStyle(0xffffff)
-    g.fillCircle(3, 3, 3)
-    g.generateTexture('ammo_pickup', 6, 6)
-    // Coin pickup: small square
+    g.fillCircle(5, 5, 5)
+    g.generateTexture('ammo_pickup', 10, 10)
     g.clear()
     g.fillStyle(0xffd700)
-    g.fillRect(1, 1, 5, 5)
-    g.generateTexture('coin_pickup', 6, 6)
+    g.fillRect(2, 2, 8, 8)
+    g.generateTexture('coin_pickup', 12, 12)
     for (const def of Object.values(ENEMIES)) {
       g.clear()
       g.fillStyle(def.color)
@@ -475,9 +494,26 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- CombatContext / EnemyContext ---
 
   consumeAmmo(element: ElementType): boolean {
-    if (GameState.consumeAmmo(element)) return true
+    if (GameState.consumeAmmo(element)) {
+      if (GameState.ammo[element] === 0) {
+        this.time.delayedCall(0, () => this.autoUnequipRanged(element))
+      }
+      return true
+    }
     this.events.emit('toast', `Sin munición [${ELEMENT_NAMES[element]}]`)
     return false
+  }
+
+  private autoUnequipRanged(element: ElementType): void {
+    const equipped = this.player.equippedItem
+    const def = WEAPONS[equipped.key]
+    if (def?.element !== element) return
+    const moved = GameState.addToBag(equipped)
+    const knife = makeItem(KNIFE_KEY)
+    this.player.equip(knife)
+    GameState.equipped = knife
+    GameState.persist()
+    this.events.emit('toast', moved ? `Sin balas — ${def.name} a bag` : `Sin balas — navaja`)
   }
 
   spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, element?: ElementType): void {
@@ -550,15 +586,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   update(time: number, delta: number) {
     this.player.update(time, delta)
+    this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
 
     if (this.mode === 'run') {
-      this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
       this.updateBossBar()
       this.updateRoomCleared()
       this.checkDoorTransitions(time)
-      this.checkDeath()
     }
 
+    this.checkDeath()
     this.checkPortals()
   }
 
@@ -568,7 +604,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.clearBossBar()
       return
     }
-    this.bossBar.width = (W - 80) * this.boss.health.ratio
+    this.bossBar.width = (W - 160) * this.boss.health.ratio
   }
 
   private updateRoomCleared(): void {
@@ -584,10 +620,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private checkDeath(): void {
     if (this.dead || !this.player.isDead) return
     this.dead = true
-    this.syncProgression() // el nivel persiste; el loot se pierde
-    addLabel(this, W / 2, H / 2 - 40, 'MORISTE', 16, CSS.red).setOrigin(0.5).setScrollFactor(0).setDepth(3000)
+    this.player.progression.penalizeXp(0.2)  // -20% XP del nivel actual, no puede bajar de nivel
+    this.syncProgression()
+    addLabel(this, W / 2, H / 2 - 80, 'MORISTE', 32, CSS.red).setOrigin(0.5).setScrollFactor(0).setDepth(3000)
     this.time.delayedCall(1400, () => {
-      GameState.clearBag() // se pierde la bag; el equipo persiste
+      GameState.clearBag()
       GameState.lastOutcome = 'death'
       this.switchScene('overworld')
     })

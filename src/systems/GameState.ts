@@ -7,7 +7,7 @@ import type { StatKey } from '../data/playerStats'
 import type { ElementType } from '../data/elements'
 
 const DEFAULT_BAG_CAPACITY = 8
-const STAT_POINTS_PER_LEVEL = 3
+const STAT_POINTS_PER_LEVEL = 1
 
 class GameStateClass {
   level = 1
@@ -24,6 +24,11 @@ class GameStateClass {
 
   statPoints = 0
   statLevels: Partial<Record<StatKey, number>> = {}
+  statResetCount = 0
+
+  get statResetCost(): number {
+    return Math.round(20 * Math.pow(1.25, this.statResetCount))
+  }
 
   lastOutcome: 'retreat' | 'death' | null = null
 
@@ -50,6 +55,7 @@ class GameStateClass {
     }
     this.statPoints = data.statPoints ?? 0
     this.statLevels = (data.statLevels ?? {}) as Partial<Record<StatKey, number>>
+    this.statResetCount = data.statResetCount ?? 0
   }
 
   persist(): void {
@@ -63,6 +69,7 @@ class GameStateClass {
       ammo: { ...this.ammo },
       statPoints: this.statPoints,
       statLevels: { ...this.statLevels },
+      statResetCount: this.statResetCount,
     }
     void this.store.save(data)
   }
@@ -75,6 +82,19 @@ class GameStateClass {
     if (this.statPoints <= 0) return false
     this.statPoints--
     this.statLevels[key] = (this.statLevels[key] ?? 0) + 1
+    this.persist()
+    return true
+  }
+
+  resetStats(): boolean {
+    const cost = this.statResetCost
+    if (this.coins < cost) return false
+    const invested = Object.values(this.statLevels).reduce((s, v) => s + (v ?? 0), 0)
+    if (invested === 0) return false
+    this.coins -= cost
+    this.statPoints += invested
+    this.statLevels = {}
+    this.statResetCount++
     this.persist()
     return true
   }

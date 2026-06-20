@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 
-const RADIUS = 16
+const RADIUS = 28
 
 /**
  * Botón de acción táctil fijo en pantalla. Expone su estado (presionado)
@@ -27,7 +27,7 @@ export class ActionButton {
       .setInteractive({ useHandCursor: true })
 
     scene.add
-      .text(x, y, label, { fontSize: '8px', color: '#ffffff' })
+      .text(x, y, label, { fontSize: '16px', color: '#ffffff' })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(1001)

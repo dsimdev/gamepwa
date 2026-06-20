@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { ELEMENT_COLORS } from '../data/elements'
 import type { ElementType } from '../data/elements'
 
-const SPEED = 150
+const SPEED = 300
 const LIFETIME = 1100
 
 export class Projectile extends Phaser.Physics.Arcade.Image {

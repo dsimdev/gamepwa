@@ -9,7 +9,7 @@ import { ELEMENT_COLORS, ELEMENT_CSS } from '../data/elements'
 import type { ElementType } from '../data/elements'
 import { FONT_FAMILY } from '../ui/theme'
 
-const KNOCKBACK = 80
+const KNOCKBACK = 160
 const DEATH_MS = 180
 
 export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
@@ -20,6 +20,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   health: Resource
 
   onDeath?: (enemy: Enemy) => void
+
+  provoked = false
 
   private behavior: AIBehavior
   private context: EnemyContext
@@ -49,8 +51,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
     const weakness = this.getPrimaryWeakness()
     const barColor = weakness ? ELEMENT_COLORS[weakness] : 0x888888
     const bw = def.size
-    this.hpBarBg = scene.add.rectangle(x, y - def.size / 2 - 4, bw, 2, 0x222233)
-    this.hpBarFill = scene.add.rectangle(x - bw / 2, y - def.size / 2 - 4, bw, 2, barColor).setOrigin(0, 0.5)
+    this.hpBarBg = scene.add.rectangle(x, y - def.size / 2 - 8, bw, 4, 0x222233)
+    this.hpBarFill = scene.add.rectangle(x - bw / 2, y - def.size / 2 - 8, bw, 4, barColor).setOrigin(0, 0.5)
   }
 
   get isDead(): boolean {
@@ -61,7 +63,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
     if (this.isDead) return
     this.behavior.update(this, player, time, delta)
 
-    const barY = this.y - this.def.size / 2 - 4
+    const barY = this.y - this.def.size / 2 - 8
     this.hpBarBg.setPosition(this.x, barY)
     this.hpBarFill.setPosition(this.x - this.def.size / 2, barY)
     this.hpBarFill.width = this.def.size * this.health.ratio
@@ -93,6 +95,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
       }
     }
 
+    this.provoked = true
     this.health.damage(finalDamage)
     this.setTintFill()
     this.scene.time.delayedCall(70, () => this.clearTint())
@@ -117,10 +120,10 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   private showFloating(text: string, color: string): void {
-    const t = this.scene.add.text(this.x, this.y - this.def.size / 2 - 8, text, {
+    const t = this.scene.add.text(this.x, this.y - this.def.size / 2 - 16, text, {
       fontFamily: FONT_FAMILY,
       fontStyle: 'bold',
-      fontSize: '7px',
+      fontSize: '14px',
       color,
       resolution: 2,
     })

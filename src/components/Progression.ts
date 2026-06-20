@@ -25,4 +25,9 @@ export class Progression {
     const r = this.xp / this.xpToNext
     return r < 0 ? 0 : r > 1 ? 1 : r
   }
+
+  /** Descuenta un porcentaje del XP del nivel actual sin poder bajar de nivel. */
+  penalizeXp(fraction: number): void {
+    this.xp = Math.max(0, this.xp - Math.floor(this.xp * fraction))
+  }
 }

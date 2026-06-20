@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 
-const BASE_RADIUS = 26
-const THUMB_RADIUS = 12
+const BASE_RADIUS = 48
+const THUMB_RADIUS = 22
 const DEAD_ZONE = 0.18
 
 /**

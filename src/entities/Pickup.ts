@@ -16,11 +16,11 @@ export class Pickup extends Phaser.Physics.Arcade.Sprite {
     this.itemKey = itemKey
     this.amount = amount
     this.setTint(color)
-    this.body!.setSize(8, 8)
+    this.body!.setSize(14, 14)
 
     scene.tweens.add({
       targets: this,
-      y: y - 3,
+      y: y - 6,
       duration: 600,
       yoyo: true,
       repeat: -1,

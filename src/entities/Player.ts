@@ -13,8 +13,10 @@ import type { ItemInstance } from '../items/types'
 import type { CombatContext, Damageable } from '../combat/types'
 import type { ElementType } from '../data/elements'
 
-const MELEE_WIDTH = 16
+const MELEE_WIDTH = 32
 const INVULN_MS = 600
+const COMBAT_WINDOW_MS = 4000
+const COMBAT_REGEN_MULT = 0.15
 
 export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   private inputManager: InputManager
@@ -35,6 +37,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
   private nextAttackAt = 0
   private invulnUntil = 0
+  private lastCombatAt = -COMBAT_WINDOW_MS
 
   constructor(scene: Phaser.Scene, x: number, y: number, input: InputManager, combat: CombatContext) {
     super(scene, x, y, 'player')
@@ -48,8 +51,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.mana = new Resource(this.stats.maxMana, this.stats.manaRegen)
 
     this.setCollideWorldBounds(true)
-    this.body!.setSize(12, 12)
-    this.body!.setOffset(2, 4)
+    this.body!.setSize(24, 24)
+    this.body!.setOffset(4, 8)
     ;(this.body as Phaser.Physics.Arcade.Body).pushable = false
   }
 
@@ -61,7 +64,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     return this.progression.level
   }
 
+  get inCombat(): boolean {
+    return this.scene.time.now - this.lastCombatAt < COMBAT_WINDOW_MS
+  }
+
+  markCombat(): void {
+    this.lastCombatAt = this.scene.time.now
+  }
+
   update(_time: number, delta: number): void {
+    const regenMult = this.inCombat ? COMBAT_REGEN_MULT : 1.0
+    this.health.regenPerSec = this.stats.hpRegen * regenMult
+    this.mana.regenPerSec = this.stats.manaRegen * regenMult
     this.health.update(delta)
     this.mana.update(delta)
 
@@ -85,6 +99,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
     const cooldown = this.weapon.cooldownMs
 
+    this.markCombat()
     if (this.weapon.type === 'melee') {
       this.nextAttackAt = now + cooldown
       this.meleeSwing()
@@ -124,6 +139,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   takeDamage(amount: number, _knockbackFrom?: Phaser.Math.Vector2, _element?: ElementType): void {
     const now = this.scene.time.now
     if (now < this.invulnUntil || this.isDead) return
+    this.markCombat()
     this.health.damage(applyDefense(amount, this.stats.defense))
     this.invulnUntil = now + INVULN_MS
     if (this.isDead) {

@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 
 export const FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', sans-serif"
-export const TEXT_RES = 4
+export const TEXT_RES = 2
 
 /** Paleta cyberpunk: neón sobre oscuro. */
 export const COLORS = {

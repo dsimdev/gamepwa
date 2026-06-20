@@ -10,6 +10,7 @@ export interface SaveData {
   ammo?: { fire?: number; electro?: number; plasma?: number }
   statPoints?: number
   statLevels?: Partial<Record<string, number>>
+  statResetCount?: number
 }
 
 export interface SaveStore {

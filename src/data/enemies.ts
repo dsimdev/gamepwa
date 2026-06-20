@@ -1,6 +1,6 @@
 import type { ElementType } from './elements'
 
-export type BehaviorKind = 'chaser' | 'shooter' | 'boss'
+export type BehaviorKind = 'chaser' | 'shooter' | 'boss' | 'neutral'
 
 export interface EnemyDef {
   key: string
@@ -31,7 +31,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     behavior: 'chaser',
     xpReward: 3,
     color: 0x2bff88,
-    size: 12,
+    size: 24,
     resistances: { plasma: 0.6 },
     weaknesses: { fire: 1.5 },
   },
@@ -44,7 +44,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     behavior: 'chaser',
     xpReward: 2,
     color: 0xb14aff,
-    size: 10,
+    size: 20,
     resistances: { electro: 0.7 },
     weaknesses: { plasma: 1.5 },
   },
@@ -57,12 +57,23 @@ export const ENEMIES: Record<string, EnemyDef> = {
     behavior: 'shooter',
     xpReward: 5,
     color: 0xffa600,
-    size: 12,
-    shootRange: 90,
+    size: 24,
+    shootRange: 180,
     shootCooldownMs: 1400,
     projectileDamage: 1,
     resistances: { fire: 0.6 },
     weaknesses: { electro: 1.5 },
+  },
+  scavenger: {
+    key: 'scavenger',
+    name: 'Rebuscador',
+    hp: 6,
+    speed: 50,
+    contactDamage: 1,
+    behavior: 'neutral',
+    xpReward: 10,
+    color: 0x88bb44,
+    size: 22,
   },
   golem: {
     key: 'golem',
@@ -73,7 +84,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     behavior: 'boss',
     xpReward: 30,
     color: 0xff2d95,
-    size: 26,
+    size: 52,
     shootCooldownMs: 1800,
     projectileDamage: 1,
     resistances: { fire: 0.5, electro: 0.4 },

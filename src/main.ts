@@ -6,10 +6,13 @@ import { UIScene } from './scenes/UIScene'
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
-  width: 320,
-  height: 180,
-  zoom: 3,
   backgroundColor: '#0a0a16',
+  scale: {
+    mode: Phaser.Scale.FIT,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+    width: 640,
+    height: 360,
+  },
   physics: {
     default: 'arcade',
     arcade: {
