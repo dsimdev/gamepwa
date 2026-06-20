@@ -64,7 +64,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   golem: {
     key: 'golem',
     name: 'Gólem',
-    hp: 40,
+    hp: 22,
     speed: 22,
     contactDamage: 2,
     behavior: 'boss',

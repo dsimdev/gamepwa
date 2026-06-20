@@ -5,7 +5,7 @@ import { Progression } from '../components/Progression'
 import { applyDefense } from '../components/Stats'
 import { statsForLevel } from '../data/playerStats'
 import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
-import { SKILLS, STARTING_SKILL } from '../data/skills'
+import { SKILLS } from '../data/skills'
 import type { StatBlock } from '../components/Stats'
 import type { WeaponDef } from '../data/weapons'
 import type { SkillDef } from '../data/skills'
@@ -24,7 +24,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   progression = new Progression()
 
   weapon: WeaponDef = WEAPONS[STARTING_WEAPON]
-  skill: SkillDef = SKILLS[STARTING_SKILL]
+
+  /** B depende del arma: melee → bloqueo, rango → cura. */
+  get skill(): SkillDef {
+    return this.weapon.type === 'melee' ? SKILLS.block : SKILLS.heal
+  }
 
   facing = new Phaser.Math.Vector2(0, 1)
 
@@ -186,16 +190,13 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   // --- Equipo ---
 
   equipWeapon(weapon: WeaponDef): void {
-    this.weapon = weapon
-    this.nextAttackAt = 0
-  }
-
-  equipSkill(skill: SkillDef): void {
+    // Cambiar de arma cambia B (bloqueo↔cura): cortar bloqueo activo
     if (this.blocking) {
       this.blocking = false
       this.clearTint()
     }
-    this.skill = skill
+    this.weapon = weapon
+    this.nextAttackAt = 0
     this.nextSkillAt = 0
   }
 }

@@ -1,6 +1,5 @@
 import { IndexedDBSaveStore } from './IndexedDBSaveStore'
 import { STARTING_WEAPON } from '../data/weapons'
-import { STARTING_SKILL } from '../data/skills'
 import type { SaveData, StashItem } from './SaveStore'
 
 /**
@@ -14,9 +13,8 @@ class GameStateClass {
   depth = 0
   stash: StashItem[] = []
 
-  // En memoria (no se persiste): equipo que llevás encima
+  // En memoria (no se persiste): arma que llevás encima (B se deriva del arma)
   carriedWeapon = STARTING_WEAPON
-  carriedSkill = STARTING_SKILL
 
   private store = new IndexedDBSaveStore()
 
@@ -39,7 +37,6 @@ class GameStateClass {
   /** Resetea el equipo al loadout básico (al iniciar una run o al morir). */
   resetLoadout(): void {
     this.carriedWeapon = STARTING_WEAPON
-    this.carriedSkill = STARTING_SKILL
   }
 
   addToStash(item: StashItem): boolean {

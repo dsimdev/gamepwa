@@ -7,7 +7,6 @@ import { Projectile } from '../combat/Projectile'
 import { GameState } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
 import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
-import { SKILLS, STARTING_SKILL } from '../data/skills'
 import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import type { BiomeDef } from '../data/biomes'
@@ -16,7 +15,6 @@ import type { Dir, Dungeon, RoomData } from '../dungeon/types'
 import type { CombatContext, EnemyContext } from '../combat/types'
 
 const DROP_CHANCE = 0.3
-const WEAPON_DROP_WEIGHT = 0.7
 
 const W = 320
 const H = 180
@@ -42,6 +40,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private current?: RoomData
   private biome?: BiomeDef
   private wallColor = 0x4a3728
+  private boss?: Enemy
+  private bossBar?: Phaser.GameObjects.Rectangle
+  private bossBarBg?: Phaser.GameObjects.Container
   private doorZones: Array<{ dir: Dir; rect: Phaser.Geom.Rectangle }> = []
   private portalZones: Array<{ kind: PortalKind; rect: Phaser.Geom.Rectangle }> = []
   private transitionLockUntil = 0
@@ -80,7 +81,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     // Cargar equipo y progresión desde el estado global
     this.player.equipWeapon(WEAPONS[GameState.carriedWeapon])
-    this.player.equipSkill(SKILLS[GameState.carriedSkill])
     this.player.applyProgression(GameState.level, GameState.xp)
 
     // Persistir al subir de nivel (off primero: la escena reusa el emitter al reiniciar)
@@ -170,6 +170,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.pickups.clear(true, true)
     this.doorZones = []
     this.portalZones = []
+    this.clearBossBar()
     this.projectiles.getChildren().forEach(p => (p as Projectile).kill())
     this.enemyProjectiles.getChildren().forEach(p => (p as Projectile).kill())
   }
@@ -254,6 +255,30 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const boss = new Enemy(this, W / 2, H / 2, ENEMIES[bossKey], this, this.difficultyScale())
     boss.onDeath = e => this.onBossDefeated(e)
     this.enemies.add(boss)
+    this.boss = boss
+    this.createBossBar(ENEMIES[bossKey].name)
+  }
+
+  private createBossBar(name: string): void {
+    const barW = W - 80
+    const x = 40
+    const y = H - 26
+    const bg = this.add.rectangle(x, y, barW, 5, 0x4a0000).setOrigin(0, 0).setScrollFactor(0).setDepth(2000)
+    this.bossBar = this.add.rectangle(x, y, barW, 5, 0xe74c3c).setOrigin(0, 0).setScrollFactor(0).setDepth(2001)
+    const label = this.add
+      .text(W / 2, y - 8, name, { fontSize: '7px', color: '#e74c3c' })
+      .setOrigin(0.5, 0)
+      .setScrollFactor(0)
+      .setDepth(2001)
+    this.bossBarBg = this.add.container(0, 0, [bg, label]).setDepth(2000)
+  }
+
+  private clearBossBar(): void {
+    this.boss = undefined
+    this.bossBar?.destroy()
+    this.bossBarBg?.destroy()
+    this.bossBar = undefined
+    this.bossBarBg = undefined
   }
 
   private onBossDefeated(boss: Enemy): void {
@@ -269,13 +294,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private maybeDropLoot(x: number, y: number): void {
     if (Math.random() > DROP_CHANCE) return
-    if (Math.random() < WEAPON_DROP_WEIGHT) {
-      const key = Phaser.Utils.Array.GetRandom(Object.keys(WEAPONS))
-      this.pickups.add(new Pickup(this, x, y, 'weapon', key, WEAPONS[key].color))
-    } else {
-      const key = Phaser.Utils.Array.GetRandom(Object.keys(SKILLS))
-      this.pickups.add(new Pickup(this, x, y, 'skill', key, SKILLS[key].color))
-    }
+    const key = Phaser.Utils.Array.GetRandom(Object.keys(WEAPONS))
+    this.pickups.add(new Pickup(this, x, y, 'weapon', key, WEAPONS[key].color))
   }
 
   private placePlayerAtDoor(entryDir: Dir): void {
@@ -316,14 +336,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private depositStash(): void {
-    let added = false
-    if (GameState.carriedWeapon !== STARTING_WEAPON) {
-      added = GameState.addToStash({ kind: 'weapon', key: GameState.carriedWeapon }) || added
+    if (GameState.carriedWeapon === STARTING_WEAPON) return
+    if (GameState.addToStash({ kind: 'weapon', key: GameState.carriedWeapon })) {
+      this.events.emit('stashed', GameState.stash.length)
     }
-    if (GameState.carriedSkill !== STARTING_SKILL) {
-      added = GameState.addToStash({ kind: 'skill', key: GameState.carriedSkill }) || added
-    }
-    if (added) this.events.emit('stashed', GameState.stash.length)
   }
 
   // --- Texturas placeholder ---
@@ -410,14 +426,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private onPickup: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, obj) => {
     const pick = obj as Pickup
-    if (!pick.active) return
-    if (pick.kind === 'weapon') {
-      this.player.equipWeapon(WEAPONS[pick.itemKey])
-      GameState.carriedWeapon = pick.itemKey
-    } else {
-      this.player.equipSkill(SKILLS[pick.itemKey])
-      GameState.carriedSkill = pick.itemKey
-    }
+    if (!pick.active || pick.kind !== 'weapon') return
+    this.player.equipWeapon(WEAPONS[pick.itemKey])
+    GameState.carriedWeapon = pick.itemKey
     pick.destroy()
   }
 
@@ -428,12 +439,22 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     if (this.mode === 'run') {
       this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
+      this.updateBossBar()
       this.updateRoomCleared()
       this.checkDoorTransitions(time)
       this.checkDeath()
     }
 
     this.checkPortals()
+  }
+
+  private updateBossBar(): void {
+    if (!this.boss || !this.bossBar) return
+    if (this.boss.isDead) {
+      this.clearBossBar()
+      return
+    }
+    this.bossBar.width = (W - 80) * this.boss.health.ratio
   }
 
   private updateRoomCleared(): void {

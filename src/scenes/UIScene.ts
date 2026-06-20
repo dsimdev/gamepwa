@@ -3,6 +3,9 @@ import { VirtualJoystick } from '../ui/VirtualJoystick'
 import { ActionButton } from '../ui/ActionButton'
 import { INPUT_KEYS } from '../systems/InputManager'
 import { Player } from '../entities/Player'
+import { GameState } from '../systems/GameState'
+import { WEAPONS } from '../data/weapons'
+import { SKILLS } from '../data/skills'
 
 const HEART_SIZE = 8
 const HEART_GAP = 10
@@ -60,6 +63,13 @@ export class UIScene extends Phaser.Scene {
       .text(width - 4, 5, 'Lv 1', { fontSize: '8px', color: '#f1c40f' })
       .setOrigin(1, 0)
 
+    // Botón de inventario
+    this.add
+      .text(width - 4, 16, '[INV]', { fontSize: '7px', color: '#95a5a6' })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true })
+      .on(Phaser.Input.Events.POINTER_DOWN, () => this.toggleInventory())
+
     // Equipo: A=arma / B=skill (abajo a la izquierda)
     this.equipText = this.add
       .text(MARGIN, this.scale.height - 8, '', { fontSize: '7px', color: '#ecf0f1' })
@@ -97,6 +107,33 @@ export class UIScene extends Phaser.Scene {
       this.lastWeapon = wKey
       this.lastSkill = sKey
     }
+  }
+
+  private invPanel?: Phaser.GameObjects.Container
+
+  private toggleInventory() {
+    if (this.invPanel) {
+      this.invPanel.destroy()
+      this.invPanel = undefined
+      return
+    }
+    const { width, height } = this.scale
+    const bg = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0, 0)
+    const title = this.add.text(width / 2, 14, 'INVENTARIO (stash)', { fontSize: '9px', color: '#f1c40f' }).setOrigin(0.5, 0)
+
+    const lines: Phaser.GameObjects.Text[] = []
+    if (GameState.stash.length === 0) {
+      lines.push(this.add.text(width / 2, 40, 'Vacío', { fontSize: '8px', color: '#7f8c8d' }).setOrigin(0.5, 0))
+    } else {
+      GameState.stash.forEach((item, i) => {
+        const name = item.kind === 'weapon' ? WEAPONS[item.key]?.name : SKILLS[item.key]?.name
+        const txt = `• ${name ?? item.key} (${item.kind === 'weapon' ? 'arma' : 'skill'})`
+        lines.push(this.add.text(20, 34 + i * 12, txt, { fontSize: '8px', color: '#ecf0f1' }).setOrigin(0, 0))
+      })
+    }
+    const close = this.add.text(width / 2, height - 16, 'tocá [INV] para cerrar', { fontSize: '6px', color: '#7f8c8d' }).setOrigin(0.5, 0)
+
+    this.invPanel = this.add.container(0, 0, [bg, title, ...lines, close]).setDepth(5000)
   }
 
   private showToast(text: string) {
