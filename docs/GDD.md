@@ -31,9 +31,18 @@ Mantiene el coste asimétrico del pilar 3: la vida es el recurso del melee, el m
 El juego es un **roguelite con hub** (tipo Hades / Children of Morta):
 
 - **Base (hub persistente):** el jugador arranca acá. Es una zona segura, no procedural, que persiste entre runs. Desde la base se sale a la incursión (portal/puerta). **A futuro se le agregan cosas:** mejoras, NPCs, cofres, estaciones.
-- **Stash (almacén):** loot guardado en la base. **Persiste entre runs** (IndexedDB).
-- **Run / incursión:** dungeon procedural (las salas de v0.5.0). El loot recogido durante la run se lleva "encima".
-- **Muerte:** no es game-over. El jugador **vuelve a la base**. El loot que llevaba encima y **no guardó** en el stash **se pierde** (riesgo roguelite). Lo guardado en el stash queda.
+
+### Sistema de items (3 cosas distintas)
+
+| Sistema | Qué es | Al morir | Persistencia |
+|---|---|---|---|
+| **Bag (inventario)** | Lo que vas levantando en la run. Tiene capacidad (crece a futuro). El loot **no se autoequipa**. | **Se pierde** (lo no depositado) | En memoria |
+| **Baúl** | Almacén de la base para lo importante. Depositás la bag ahí. | — | IndexedDB |
+| **Equipamiento** | El arma que usás. **Se degrada por uso** y al llegar a 0 **se destruye** (caés a puños, inquebrables). | **NO se pierde** | IndexedDB |
+
+- **Equipar:** desde la bag, en cualquier momento (la anterior vuelve a la bag).
+- **Run / incursión:** dungeon procedural. El loot recogido va a la bag.
+- **Muerte:** no es game-over. Volvés a la base. **Se pierde la bag**; el equipo y el baúl quedan.
 - **Retirada (volver con vida):** la única salida con vida está en la **sala inicial** (la entrada), sin cartel. El jugador debe **conocer/recordar el mapa** para volver. Retirarse **cura y conserva el loot**, pero termina la run (no boss, no profundidad): es un costo de oportunidad, no un escape gratis.
 - **B según arma:** melee → bloqueo; rango → cura. (Ver Controles.)
 

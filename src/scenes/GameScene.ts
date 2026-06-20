@@ -6,7 +6,8 @@ import { InputManager } from '../systems/InputManager'
 import { Projectile } from '../combat/Projectile'
 import { GameState } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
-import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
+import { WEAPONS, LOOTABLE_WEAPONS } from '../data/weapons'
+import { makeItem } from '../items/types'
 import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import type { BiomeDef } from '../data/biomes'
@@ -80,7 +81,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.player = new Player(this, W / 2, H / 2, this.inputManager, this)
 
     // Cargar equipo y progresión desde el estado global
-    this.player.equipWeapon(WEAPONS[GameState.carriedWeapon])
+    this.player.equip(GameState.equipped)
     this.player.applyProgression(GameState.level, GameState.xp)
 
     // Persistir al subir de nivel (off primero: la escena reusa el emitter al reiniciar)
@@ -89,6 +90,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       GameState.level = this.player.progression.level
       GameState.xp = this.player.progression.xp
       GameState.persist()
+    })
+
+    // Al romperse el arma: el equipo pasó a puños; persistir y avisar
+    this.events.off('weaponbroke')
+    this.events.on('weaponbroke', (name: string) => {
+      GameState.equipped = this.player.equippedItem
+      GameState.persist()
+      this.events.emit('toast', `${name} se rompió`)
     })
 
     this.physics.add.collider(this.player, this.walls)
@@ -301,7 +310,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private onBossDefeated(boss: Enemy): void {
     this.player.gainXp(boss.xpReward)
     // Drop garantizado de arma
-    const key = Phaser.Utils.Array.GetRandom(Object.keys(WEAPONS))
+    const key = Phaser.Utils.Array.GetRandom(LOOTABLE_WEAPONS)
     this.pickups.add(new Pickup(this, boss.x, boss.y, 'weapon', key, WEAPONS[key].color))
     // Sube la profundidad (dificultad + recompensa futura)
     GameState.depth++
@@ -311,7 +320,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private maybeDropLoot(x: number, y: number): void {
     if (Math.random() > DROP_CHANCE) return
-    const key = Phaser.Utils.Array.GetRandom(Object.keys(WEAPONS))
+    const key = Phaser.Utils.Array.GetRandom(LOOTABLE_WEAPONS)
     this.pickups.add(new Pickup(this, x, y, 'weapon', key, WEAPONS[key].color))
   }
 
@@ -332,7 +341,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- Transiciones de escena (base ↔ run) ---
 
   private goToRun(): void {
-    GameState.resetLoadout() // siempre loadout básico al salir
+    // El equipo persiste; la bag arranca como esté (lo no depositado se lleva)
     this.switchScene('run')
   }
 
@@ -353,11 +362,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.scene.start('GameScene', { mode })
   }
 
+  private stashCooldownUntil = 0
+
   private depositStash(): void {
-    if (GameState.carriedWeapon === STARTING_WEAPON) return
-    if (GameState.addToStash({ kind: 'weapon', key: GameState.carriedWeapon })) {
-      this.events.emit('stashed', GameState.stash.length)
-    }
+    if (this.time.now < this.stashCooldownUntil) return
+    this.stashCooldownUntil = this.time.now + 800
+    const n = GameState.depositBag()
+    if (n > 0) this.events.emit('stashed', n)
   }
 
   // --- Texturas placeholder ---
@@ -445,9 +456,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private onPickup: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, obj) => {
     const pick = obj as Pickup
     if (!pick.active || pick.kind !== 'weapon') return
-    this.player.equipWeapon(WEAPONS[pick.itemKey])
-    GameState.carriedWeapon = pick.itemKey
-    pick.destroy()
+    // El loot NO se autoequipa: va a la bag (si hay lugar)
+    if (GameState.addToBag(makeItem(pick.itemKey))) {
+      this.events.emit('toast', `${WEAPONS[pick.itemKey].name} → bag`)
+      pick.destroy()
+    } else {
+      this.events.emit('toast', 'Bag llena')
+    }
   }
 
   // --- Loop ---
@@ -494,7 +509,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       .setOrigin(0.5)
       .setDepth(3000)
     this.time.delayedCall(1400, () => {
-      GameState.resetLoadout()
+      GameState.clearBag() // se pierde la bag; el equipo persiste
       GameState.lastOutcome = 'death'
       this.switchScene('base')
     })

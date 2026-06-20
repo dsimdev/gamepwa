@@ -1,16 +1,14 @@
-import type { PickupKind } from '../entities/Pickup'
-
-export interface StashItem {
-  kind: PickupKind
-  key: string
-}
+import type { ItemInstance } from '../items/types'
 
 export interface SaveData {
   level: number
   xp: number
-  stash: StashItem[]
   /** Profundidad: sube al derrotar bosses, escala la dificultad. */
   depth?: number
+  /** Baúl: almacén persistente en la base. */
+  stash: ItemInstance[]
+  /** Arma equipada (persiste, se degrada). */
+  equipped?: ItemInstance
 }
 
 /**

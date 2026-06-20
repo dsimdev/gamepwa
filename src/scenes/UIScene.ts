@@ -5,7 +5,8 @@ import { INPUT_KEYS } from '../systems/InputManager'
 import { Player } from '../entities/Player'
 import { GameState } from '../systems/GameState'
 import { WEAPONS } from '../data/weapons'
-import { SKILLS } from '../data/skills'
+import { isUnbreakable } from '../items/types'
+import type { ItemInstance } from '../items/types'
 
 const HEART_SIZE = 8
 const HEART_GAP = 10
@@ -17,6 +18,9 @@ const MAX_HEARTS = 10
 
 export class UIScene extends Phaser.Scene {
   private player!: Player
+  private mode: 'base' | 'run' = 'run'
+  private info = ''
+
   private hearts: Phaser.GameObjects.GameObject[] = []
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
@@ -24,63 +28,63 @@ export class UIScene extends Phaser.Scene {
   private equipText!: Phaser.GameObjects.Text
   private lastHp = -1
   private lastLevel = -1
-  private lastWeapon = ''
-  private lastSkill = ''
+
+  private panel?: Phaser.GameObjects.Container
+  private panelKind?: 'bag' | 'stash'
 
   constructor() {
     super({ key: 'UIScene' })
   }
 
-  private info = ''
-
-  init(data: { player: Player; info?: string }) {
+  init(data: { player: Player; mode?: 'base' | 'run'; info?: string }) {
     this.player = data.player
+    this.mode = data.mode ?? 'run'
     this.info = data.info ?? ''
-  }
-
-  private listenEvents() {
-    const ev = this.player.scene.events
-    ev.off('stashed')
-    ev.on('stashed', (count: number) => this.showToast(`Guardado (${count})`))
-    ev.off('boss')
-    ev.on('boss', (depth: number) => this.showToast(`¡Boss derrotado! Prof ${depth}`))
   }
 
   create() {
     const { width } = this.scale
 
-    // Barra de XP (borde superior, ancho completo)
     this.add.rectangle(0, 0, width, XP_BAR_H, 0x2c2c44).setOrigin(0, 0)
     this.xpBar = this.add.rectangle(0, 0, 0, XP_BAR_H, 0xf1c40f).setOrigin(0, 0)
 
     this.drawHealth(this.player.health.max, this.player.health.max)
 
-    // Barra de maná bajo los corazones
     this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x1b2a4a).setOrigin(0, 0)
     this.manaBar = this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, 0x3498db).setOrigin(0, 0)
 
-    // Nivel (arriba a la derecha)
-    this.levelText = this.add
-      .text(width - 4, 5, 'Lv 1', { fontSize: '8px', color: '#f1c40f' })
-      .setOrigin(1, 0)
+    this.levelText = this.add.text(width - 4, 5, 'Lv 1', { fontSize: '8px', color: '#f1c40f' }).setOrigin(1, 0)
 
-    // Botón de inventario
-    this.add
-      .text(width - 4, 16, '[INV]', { fontSize: '7px', color: '#95a5a6' })
-      .setOrigin(1, 0)
-      .setInteractive({ useHandCursor: true })
-      .on(Phaser.Input.Events.POINTER_DOWN, () => this.toggleInventory())
+    // Botones de paneles
+    this.addTextButton(width - 4, 16, '[BAG]', () => this.togglePanel('bag'))
+    if (this.mode === 'base') this.addTextButton(width - 4, 26, '[BAÚL]', () => this.togglePanel('stash'))
 
-    // Equipo: A=arma / B=skill (abajo a la izquierda)
-    this.equipText = this.add
-      .text(MARGIN, this.scale.height - 8, '', { fontSize: '7px', color: '#ecf0f1' })
-      .setOrigin(0, 1)
-
-    // Info de bioma / profundidad (arriba al centro)
+    this.equipText = this.add.text(MARGIN, this.scale.height - 8, '', { fontSize: '7px', color: '#ecf0f1' }).setOrigin(0, 1)
     this.add.text(this.scale.width / 2, 4, this.info, { fontSize: '7px', color: '#95a5a6' }).setOrigin(0.5, 0)
 
     this.setupTouchControls()
     this.listenEvents()
+  }
+
+  private addTextButton(x: number, y: number, label: string, onTap: () => void) {
+    this.add
+      .text(x, y, label, { fontSize: '7px', color: '#95a5a6' })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true })
+      .on(Phaser.Input.Events.POINTER_DOWN, onTap)
+  }
+
+  private listenEvents() {
+    const ev = this.player.scene.events
+    ev.off('toast')
+    ev.on('toast', (msg: string) => this.showToast(msg))
+    ev.off('stashed')
+    ev.on('stashed', (count: number) => {
+      this.showToast(`Depositado (${count})`)
+      if (this.panelKind) this.refreshPanel()
+    })
+    ev.off('boss')
+    ev.on('boss', (depth: number) => this.showToast(`¡Boss derrotado! Prof ${depth}`))
   }
 
   update() {
@@ -98,58 +102,97 @@ export class UIScene extends Phaser.Scene {
       this.levelText.setText(`Lv ${this.player.level}`)
     }
 
-    // Equipo + toast al cambiar de arma/skill
-    const wKey = this.player.weapon.key
-    const sKey = this.player.skill.key
-    if (wKey !== this.lastWeapon || sKey !== this.lastSkill) {
-      this.equipText.setText(`A: ${this.player.weapon.name}   B: ${this.player.skill.name}`)
-      if (this.lastWeapon !== '' && wKey !== this.lastWeapon) this.showToast(`¡${this.player.weapon.name}!`)
-      if (this.lastSkill !== '' && sKey !== this.lastSkill) this.showToast(`¡${this.player.skill.name}!`)
-      this.lastWeapon = wKey
-      this.lastSkill = sKey
-    }
+    this.equipText.setText(`A: ${this.itemLabel(this.player.equippedItem)}   B: ${this.player.skill.name}`)
   }
 
-  private invPanel?: Phaser.GameObjects.Container
+  /** "Espada 24/30" (o solo nombre si es inquebrable). */
+  private itemLabel(item: ItemInstance): string {
+    const def = WEAPONS[item.key]
+    if (!def) return item.key
+    return def.maxDurability > 0 ? `${def.name} ${item.durability}/${def.maxDurability}` : def.name
+  }
 
-  private toggleInventory() {
-    if (this.invPanel) {
-      this.invPanel.destroy()
-      this.invPanel = undefined
+  // --- Paneles (bag / baúl) ---
+
+  private togglePanel(kind: 'bag' | 'stash') {
+    if (this.panel && this.panelKind === kind) {
+      this.closePanel()
       return
     }
-    const { width, height } = this.scale
-    const bg = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0, 0)
-    const title = this.add.text(width / 2, 14, 'INVENTARIO (stash)', { fontSize: '9px', color: '#f1c40f' }).setOrigin(0.5, 0)
+    this.closePanel()
+    this.panelKind = kind
+    this.refreshPanel()
+  }
 
-    const lines: Phaser.GameObjects.Text[] = []
-    if (GameState.stash.length === 0) {
-      lines.push(this.add.text(width / 2, 40, 'Vacío', { fontSize: '8px', color: '#7f8c8d' }).setOrigin(0.5, 0))
+  private closePanel() {
+    this.panel?.destroy()
+    this.panel = undefined
+    this.panelKind = undefined
+  }
+
+  private refreshPanel() {
+    this.panel?.destroy()
+    const { width, height } = this.scale
+    const isBag = this.panelKind === 'bag'
+    const items = isBag ? GameState.bag : GameState.stash
+    const title = isBag ? `BAG (${items.length}/${GameState.bagCapacity})` : `BAÚL (${items.length})`
+
+    const bg = this.add.rectangle(0, 0, width, height, 0x000000, 0.85).setOrigin(0, 0)
+    const head = this.add.text(width / 2, 10, title, { fontSize: '9px', color: '#f1c40f' }).setOrigin(0.5, 0)
+    const sub = this.add
+      .text(width / 2, 22, isBag ? '(tocá un arma para equipar)' : '(tocá para pasar a la bag)', { fontSize: '6px', color: '#7f8c8d' })
+      .setOrigin(0.5, 0)
+
+    const rows: Phaser.GameObjects.GameObject[] = []
+    if (items.length === 0) {
+      rows.push(this.add.text(width / 2, 44, 'Vacío', { fontSize: '8px', color: '#7f8c8d' }).setOrigin(0.5, 0))
     } else {
-      GameState.stash.forEach((item, i) => {
-        const name = item.kind === 'weapon' ? WEAPONS[item.key]?.name : SKILLS[item.key]?.name
-        const txt = `• ${name ?? item.key} (${item.kind === 'weapon' ? 'arma' : 'skill'})`
-        lines.push(this.add.text(20, 34 + i * 12, txt, { fontSize: '8px', color: '#ecf0f1' }).setOrigin(0, 0))
+      items.forEach((item, i) => {
+        const row = this.add
+          .text(20, 36 + i * 13, `• ${this.itemLabel(item)}`, { fontSize: '8px', color: '#ecf0f1' })
+          .setOrigin(0, 0)
+          .setInteractive({ useHandCursor: true })
+          .on(Phaser.Input.Events.POINTER_DOWN, () => (isBag ? this.equipFromBag(i) : this.withdraw(i)))
+        rows.push(row)
       })
     }
-    const close = this.add.text(width / 2, height - 16, 'tocá [INV] para cerrar', { fontSize: '6px', color: '#7f8c8d' }).setOrigin(0.5, 0)
 
-    this.invPanel = this.add.container(0, 0, [bg, title, ...lines, close]).setDepth(5000)
+    const eq = this.add
+      .text(width / 2, height - 22, `Equipado: ${this.itemLabel(this.player.equippedItem)}`, { fontSize: '7px', color: '#2ecc71' })
+      .setOrigin(0.5, 0)
+    const close = this.add
+      .text(width / 2, height - 12, 'cerrar', { fontSize: '7px', color: '#95a5a6' })
+      .setOrigin(0.5, 0)
+      .setInteractive({ useHandCursor: true })
+      .on(Phaser.Input.Events.POINTER_DOWN, () => this.closePanel())
+
+    this.panel = this.add.container(0, 0, [bg, head, sub, ...rows, eq, close]).setDepth(5000)
   }
+
+  private equipFromBag(i: number) {
+    const item = GameState.bag[i]
+    if (!item) return
+    const prev = this.player.equippedItem
+    GameState.bag.splice(i, 1)
+    if (!isUnbreakable(prev.key)) GameState.bag.push(prev) // el arma anterior vuelve a la bag (puños se descartan)
+    this.player.equip(item)
+    GameState.equipped = item
+    GameState.persist()
+    this.showToast(`Equipado: ${WEAPONS[item.key].name}`)
+    this.refreshPanel()
+  }
+
+  private withdraw(i: number) {
+    if (GameState.withdrawFromStash(i)) this.refreshPanel()
+    else this.showToast('Bag llena')
+  }
+
+  // --- Feedback ---
 
   private showToast(text: string) {
     const { width, height } = this.scale
-    const t = this.add
-      .text(width / 2, height - 50, text, { fontSize: '8px', color: '#ffffff' })
-      .setOrigin(0.5)
-    this.tweens.add({
-      targets: t,
-      y: t.y - 12,
-      alpha: 0,
-      duration: 1000,
-      ease: 'Cubic.Out',
-      onComplete: () => t.destroy(),
-    })
+    const t = this.add.text(width / 2, height - 50, text, { fontSize: '8px', color: '#ffffff' }).setOrigin(0.5).setDepth(6000)
+    this.tweens.add({ targets: t, y: t.y - 12, alpha: 0, duration: 1000, ease: 'Cubic.Out', onComplete: () => t.destroy() })
   }
 
   private showLevelUp(level: number) {
@@ -158,42 +201,18 @@ export class UIScene extends Phaser.Scene {
       .text(width / 2, height / 2 - 30, `¡NIVEL ${level}!`, { fontSize: '14px', color: '#f1c40f' })
       .setOrigin(0.5)
       .setScale(0.5)
-    this.tweens.add({
-      targets: txt,
-      scale: 1,
-      alpha: 0,
-      y: txt.y - 16,
-      duration: 900,
-      ease: 'Cubic.Out',
-      onComplete: () => txt.destroy(),
-    })
+    this.tweens.add({ targets: txt, scale: 1, alpha: 0, y: txt.y - 16, duration: 900, ease: 'Cubic.Out', onComplete: () => txt.destroy() })
   }
 
   private setupTouchControls() {
     const { width, height } = this.scale
-
-    new VirtualJoystick(this, (x, y) => {
-      this.registry.set(INPUT_KEYS.move, { x, y })
-    })
-
-    new ActionButton(
-      this,
-      width - 20,
-      height - 18,
-      0xe74c3c,
-      'A',
+    new VirtualJoystick(this, (x, y) => this.registry.set(INPUT_KEYS.move, { x, y }))
+    new ActionButton(this, width - 20, height - 18, 0xe74c3c, 'A',
       () => this.registry.set(INPUT_KEYS.attack, true),
-      () => this.registry.set(INPUT_KEYS.attack, false)
-    )
-    new ActionButton(
-      this,
-      width - 52,
-      height - 40,
-      0x3498db,
-      'B',
+      () => this.registry.set(INPUT_KEYS.attack, false))
+    new ActionButton(this, width - 52, height - 40, 0x3498db, 'B',
       () => this.registry.set(INPUT_KEYS.cast, true),
-      () => this.registry.set(INPUT_KEYS.cast, false)
-    )
+      () => this.registry.set(INPUT_KEYS.cast, false))
   }
 
   private drawHealth(current: number, max: number) {
@@ -209,16 +228,9 @@ export class UIScene extends Phaser.Scene {
       return
     }
 
-    // Muchos corazones: barra numérica de vida (escala a cualquier nivel)
     const bw = 70
     this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw, HEART_SIZE, 0x4a0000).setOrigin(0, 0))
-    this.hearts.push(
-      this.add.rectangle(MARGIN, MARGIN, bw * (current / max), HEART_SIZE, 0xe74c3c).setOrigin(0, 0)
-    )
-    this.hearts.push(
-      this.add
-        .text(MARGIN + bw + 4, MARGIN - 1, `${current}/${max}`, { fontSize: '7px', color: '#e74c3c' })
-        .setOrigin(0, 0)
-    )
+    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw * (current / max), HEART_SIZE, 0xe74c3c).setOrigin(0, 0))
+    this.hearts.push(this.add.text(MARGIN + bw + 4, MARGIN - 1, `${current}/${max}`, { fontSize: '7px', color: '#e74c3c' }).setOrigin(0, 0))
   }
 }

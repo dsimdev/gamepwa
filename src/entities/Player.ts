@@ -6,9 +6,11 @@ import { applyDefense } from '../components/Stats'
 import { statsForLevel } from '../data/playerStats'
 import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
 import { SKILLS } from '../data/skills'
+import { makeItem, isUnbreakable, FISTS_KEY } from '../items/types'
 import type { StatBlock } from '../components/Stats'
 import type { WeaponDef } from '../data/weapons'
 import type { SkillDef } from '../data/skills'
+import type { ItemInstance } from '../items/types'
 import type { CombatContext, Damageable } from '../combat/types'
 
 const MELEE_WIDTH = 16
@@ -23,7 +25,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   mana: Resource
   progression = new Progression()
 
-  weapon: WeaponDef = WEAPONS[STARTING_WEAPON]
+  /** Instancia del arma equipada (con su durabilidad). */
+  equippedItem: ItemInstance = makeItem(STARTING_WEAPON)
+
+  get weapon(): WeaponDef {
+    return WEAPONS[this.equippedItem.key]
+  }
 
   /** B depende del arma: melee → bloqueo, rango → cura. */
   get skill(): SkillDef {
@@ -101,6 +108,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
       this.nextAttackAt = now + this.weapon.cooldownMs
       const dmg = this.stats.rangedDamage + this.weapon.damage
       this.combat.spawnPlayerProjectile(this.x, this.y, this.facing.clone(), dmg)
+    }
+    this.degradeWeapon()
+  }
+
+  /** Gasta durabilidad; si el arma se rompe, se destruye y quedás con puños. */
+  private degradeWeapon(): void {
+    if (isUnbreakable(this.equippedItem.key)) return
+    this.equippedItem.durability -= 1
+    if (this.equippedItem.durability <= 0) {
+      const brokenName = this.weapon.name
+      this.equip(makeItem(FISTS_KEY))
+      this.scene.events.emit('weaponbroke', brokenName)
     }
   }
 
@@ -189,13 +208,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
   // --- Equipo ---
 
-  equipWeapon(weapon: WeaponDef): void {
+  /** Equipa una instancia de item (arma con su durabilidad). */
+  equip(item: ItemInstance): void {
     // Cambiar de arma cambia B (bloqueo↔cura): cortar bloqueo activo
     if (this.blocking) {
       this.blocking = false
       this.clearTint()
     }
-    this.weapon = weapon
+    this.equippedItem = item
     this.nextAttackAt = 0
     this.nextSkillAt = 0
   }

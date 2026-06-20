@@ -20,11 +20,24 @@ export interface WeaponDef {
   manaCost?: number
   /** Alcance de la hitbox (solo melee). */
   range?: number
+  /** Durabilidad máxima; 0 = inquebrable (ej. puños). Se gasta por uso y al llegar a 0 el arma se destruye. */
+  maxDurability: number
   /** Color placeholder del pickup. */
   color: number
 }
 
 export const WEAPONS: Record<string, WeaponDef> = {
+  fists: {
+    key: 'fists',
+    name: 'Puños',
+    type: 'melee',
+    damage: 1,
+    cooldownMs: 300,
+    hpCost: 0,
+    range: 11,
+    maxDurability: 0, // inquebrable (fallback)
+    color: 0xd0a070,
+  },
   sword: {
     key: 'sword',
     name: 'Espada',
@@ -33,6 +46,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     cooldownMs: 350,
     hpCost: 1,
     range: 14,
+    maxDurability: 30,
     color: 0xbdc3c7,
   },
   dagger: {
@@ -43,6 +57,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     cooldownMs: 200,
     hpCost: 1,
     range: 10,
+    maxDurability: 24,
     color: 0x95a5a6,
   },
   wand: {
@@ -52,6 +67,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     damage: 1,
     cooldownMs: 450,
     manaCost: 3,
+    maxDurability: 28,
     color: 0x9b59b6,
   },
   bow: {
@@ -61,9 +77,13 @@ export const WEAPONS: Record<string, WeaponDef> = {
     damage: 2,
     cooldownMs: 600,
     manaCost: 2,
+    maxDurability: 22,
     color: 0xe67e22,
   },
 }
 
-/** Arma inicial del jugador. */
+/** Arma con la que empieza un jugador nuevo. */
 export const STARTING_WEAPON = 'sword'
+
+/** Armas que pueden dropear (excluye puños). */
+export const LOOTABLE_WEAPONS = Object.keys(WEAPONS).filter(k => k !== 'fists')
