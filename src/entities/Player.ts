@@ -7,6 +7,7 @@ const SPEED = 80
 const MELEE_COOLDOWN = 350
 const CAST_COOLDOWN = 450
 const MELEE_DAMAGE = 2
+const MELEE_HP_COST = 1 // melee cuesta vida (risk/reward). Tunear acá.
 const CAST_DAMAGE = 1
 const CAST_MANA_COST = 3
 const MELEE_RANGE = 14
@@ -65,7 +66,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   private tryMelee(): void {
     const now = this.scene.time.now
     if (now < this.nextMeleeAt) return
+    // El melee cuesta vida; no permitir suicidarse con el propio golpe
+    if (this.health.current <= MELEE_HP_COST) return
     this.nextMeleeAt = now + MELEE_COOLDOWN
+
+    this.health.damage(MELEE_HP_COST)
 
     // Hitbox rectangular frontal centrada en la dirección encarada
     const cx = this.x + this.facing.x * MELEE_RANGE
