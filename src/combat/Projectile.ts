@@ -8,6 +8,9 @@ const DEFAULT_LIFETIME = 1100
 export class Projectile extends Phaser.Physics.Arcade.Image {
   damage = 0
   element: ElementType | undefined = undefined
+  baseDamage = 0
+  pierceCount = 0
+  readonly piercedIds = new Set<object>()
   private diesAt = 0
 
   constructor(scene: Phaser.Scene, x: number, y: number) {
@@ -26,6 +29,9 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     projScale = 1,
   ): void {
     this.damage = damage
+    this.baseDamage = damage
+    this.pierceCount = 0
+    this.piercedIds.clear()
     this.element = element
     if (this.texture.key !== textureKey) this.setTexture(textureKey)
     this.enableBody(true, x, y, true, true)
@@ -46,6 +52,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
 
   kill(): void {
     this.setScale(1)
+    this.piercedIds.clear()
     this.disableBody(true, true)
   }
 }

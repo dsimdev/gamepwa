@@ -54,6 +54,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private portalZones: Array<{ kind: PortalKind; rect: Phaser.Geom.Rectangle }> = []
   private transitionLockUntil = 0
   private dead = false
+  private victoryAchieved = false
 
   constructor() {
     super({ key: 'GameScene' })
@@ -62,6 +63,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   init(data: { mode?: Mode }) {
     this.mode = data?.mode ?? 'overworld'
     this.dead = false
+    this.victoryAchieved = false
   }
 
   create() {
@@ -181,10 +183,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     // Mobs neutrales — dan XP si se provocan, el jugador puede entrenar antes del dungeon
     this.spawnOverworldMobs()
 
-    if (GameState.lastOutcome === 'retreat') {
-      this.showCenterText('Volviste a la base — loot a salvo, +vida', 0x2ecc71)
+    if (GameState.lastOutcome === 'victory') {
+      this.showCenterText('¡DUNGEON COMPLETADO! — botín a salvo', 0x2ecc71)
+    } else if (GameState.lastOutcome === 'retreat') {
+      this.showCenterText('Volviste a la base', 0x2ecc71)
     } else if (GameState.lastOutcome === 'death') {
-      this.showCenterText('Caíste — loot perdido (nivel a salvo)', 0xe74c3c)
+      this.showCenterText('Caíste — loot perdido', 0xe74c3c)
     }
     GameState.lastOutcome = null
   }
@@ -246,9 +250,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       if (room.type === 'boss') this.spawnBoss()
       else this.spawnRoomEnemies()
     }
-    if (this.dungeon && room === this.dungeon.start) {
-      this.addPortal('overworld', W / 2, H - 68, 0x8b5a2b, '')
-    }
+    // No hay salida al overworld durante el dungeon — solo al completarlo
   }
 
   private clearRoom(): void {
@@ -316,9 +318,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
   }
 
-  /** Escala según nivel del jugador + profundidad (bosses derrotados). */
+  /** Escala de dificultad:
+   *  - Overworld: sube 20% por dungeon superado (depth)
+   *  - Dungeon: sube 20% por depth + 10% por respawnCount (muertes / corridas)
+   */
   private difficultyScale(): number {
-    return 1 + 0.15 * (this.player.level - 1) + 0.25 * GameState.depth
+    if (this.mode === 'overworld') {
+      return 1 + 0.2 * GameState.depth
+    }
+    return 1 + 0.2 * GameState.depth + 0.1 * GameState.respawnCount
   }
 
   private spawnRoomEnemies(): void {
@@ -384,8 +392,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const coins = Phaser.Math.Between(15, 25)
     this.pickups.add(new Pickup(this, bx, by - 12, 'coin', 'coin', 0xffd700, coins))
     GameState.depth++
+    GameState.respawnCount++
     GameState.persist()
     this.events.emit('boss', GameState.depth)
+
+    // Portal de victoria — aparece al completar el dungeon
+    this.victoryAchieved = true
+    const vx = bx
+    const vy = Math.min(by + 60, H - 40)
+    this.addPortal('overworld', vx, vy, 0x2ecc71, '← BASE')
+    this.showCenterText('¡DUNGEON COMPLETADO!', 0x2ecc71)
   }
 
   private maybeDropLoot(x: number, y: number): void {
@@ -431,7 +447,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private exitToOverworld(): void {
     this.syncProgression()
-    GameState.lastOutcome = 'retreat'
+    GameState.lastOutcome = this.victoryAchieved ? 'victory' : 'retreat'
     this.switchScene('overworld')
   }
 
@@ -503,13 +519,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- CombatContext / EnemyContext ---
 
   consumeAmmo(element: ElementType): boolean {
-    if (GameState.consumeAmmo(element)) {
-      if (GameState.ammo[element] === 0) {
-        this.time.delayedCall(0, () => this.autoUnequipRanged(element))
-      }
-      return true
-    }
+    // Solo verifica disponibilidad — la deducción ocurre al impactar al enemigo
+    if (GameState.ammo[element] > 0) return true
     this.events.emit('toast', `Sin munición [${ELEMENT_NAMES[element]}]`)
+    this.time.delayedCall(0, () => this.autoUnequipRanged(element))
     return false
   }
 
@@ -566,9 +579,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
         p?.fire(x, y, dir.clone().rotate(Phaser.Math.DegToRad(deg)), damage, 'projectile', 'fire', 280, 320, 0.8)
       })
     } else if (element === 'plasma') {
-      // Cañón plasma: proyectil lento, grande, AoE al impacto
+      // Laser plasma: rápido, delgado, penetrante
       const p = this.projectiles.get() as Projectile | null
-      p?.fire(x, y, dir, damage, 'projectile', 'plasma', 95, 2600, 2.4)
+      p?.fire(x, y, dir, damage, 'projectile', 'plasma', 520, 700, 0.5)
     } else if (element === 'electro') {
       // Rail electro: rápido, encadena al impacto
       const p = this.projectiles.get() as Projectile | null
@@ -628,19 +641,35 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const e = enemy as Enemy
     if (!p.active || e.isDead) return
 
-    e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), p.element)
-
+    // Plasma: rayo penetrante con daño decreciente por distancia (no muere al golpear)
     if (p.element === 'plasma') {
-      const aoeR = 72
-      this.showAoeEffect(p.x, p.y, aoeR, ELEMENT_COLORS.plasma)
+      if (p.piercedIds.has(e)) return
+      const dmg = Math.max(1, Math.round(p.baseDamage * Math.pow(0.65, p.pierceCount)))
+      e.takeDamage(dmg, new Phaser.Math.Vector2(p.x, p.y), 'plasma')
+      // AoE radial pequeño en el punto de impacto
+      const splashR = 32
+      this.showAoeEffect(p.x, p.y, splashR, ELEMENT_COLORS.plasma)
       this.enemies.getChildren().forEach(other => {
         const o = other as Enemy
-        if (o !== e && !o.isDead) {
-          const dist = Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y)
-          if (dist <= aoeR) o.takeDamage(Math.max(1, Math.round(p.damage * 0.6)), new Phaser.Math.Vector2(p.x, p.y), 'plasma')
+        if (o !== e && !o.isDead && !p.piercedIds.has(o)) {
+          if (Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y) <= splashR) {
+            o.takeDamage(Math.max(1, Math.round(dmg * 0.5)), new Phaser.Math.Vector2(p.x, p.y), 'plasma')
+            p.piercedIds.add(o)
+          }
         }
       })
-    } else if (p.element === 'electro') {
+      p.piercedIds.add(e)
+      p.pierceCount++
+      // Descuenta 1 ammo por impacto exitoso
+      if (GameState.consumeAmmo('plasma') && GameState.ammo['plasma'] === 0) {
+        this.time.delayedCall(0, () => this.autoUnequipRanged('plasma'))
+      }
+      return  // el rayo sigue viajando
+    }
+
+    e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), p.element)
+
+    if (p.element === 'electro') {
       const chainR = 120
       const chainDmg = Math.max(1, Math.round(p.damage * 0.65))
       this.enemies.getChildren().forEach(other => {
@@ -653,6 +682,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
           }
         }
       })
+    }
+
+    // Descuenta 1 ammo al golpear (fuego y electro)
+    if (p.element) {
+      if (GameState.consumeAmmo(p.element) && GameState.ammo[p.element] === 0) {
+        this.time.delayedCall(0, () => this.autoUnequipRanged(p.element!))
+      }
     }
 
     p.kill()
@@ -733,6 +769,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (this.dead || !this.player.isDead) return
     this.dead = true
     this.player.progression.penalizeXp(0.2)  // -20% XP del nivel actual, no puede bajar de nivel
+    if (this.mode === 'run') GameState.respawnCount++  // muerte en dungeon cuenta como respawn
     this.syncProgression()
     addLabel(this, W / 2, H / 2 - 80, 'MORISTE', 32, CSS.red).setOrigin(0.5).setScrollFactor(0).setDepth(3000)
     this.time.delayedCall(1400, () => {

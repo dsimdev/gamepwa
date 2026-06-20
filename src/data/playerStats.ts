@@ -25,12 +25,7 @@ const BASE: StatBlock = {
   moveSpeed:   80,
 }
 
-const LEVEL_GROWTH: Partial<StatBlock> = {
-  maxHp:        1,
-  maxMana:      0.5,
-  meleeDamage:  0.3,
-  rangedDamage: 0.3,
-}
+const LEVEL_GROWTH: Partial<StatBlock> = {}  // todos los stats crecen solo por inversión de puntos
 
 export function computeStats(level: number, statLevels: Partial<Record<StatKey, number>>): StatBlock {
   const lv = Math.max(0, level - 1)
@@ -53,8 +48,8 @@ export function statsForLevel(level: number): StatBlock {
   return computeStats(level, {})
 }
 
-const XP_BASE = 5
-const XP_GROWTH = 1.5
+const XP_BASE = 20
+const XP_GROWTH = 1.65
 export function xpToNext(level: number): number {
   return Math.floor(XP_BASE * Math.pow(XP_GROWTH, level - 1))
 }

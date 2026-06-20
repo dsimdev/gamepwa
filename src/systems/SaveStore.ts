@@ -11,6 +11,7 @@ export interface SaveData {
   statPoints?: number
   statLevels?: Partial<Record<string, number>>
   statResetCount?: number
+  respawnCount?: number
 }
 
 export interface SaveStore {

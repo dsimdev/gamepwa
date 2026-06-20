@@ -25,12 +25,13 @@ class GameStateClass {
   statPoints = 0
   statLevels: Partial<Record<StatKey, number>> = {}
   statResetCount = 0
+  respawnCount = 0
 
   get statResetCost(): number {
     return Math.round(20 * Math.pow(1.25, this.statResetCount))
   }
 
-  lastOutcome: 'retreat' | 'death' | null = null
+  lastOutcome: 'retreat' | 'death' | 'victory' | null = null
 
   private store = new IndexedDBSaveStore()
 
@@ -56,6 +57,7 @@ class GameStateClass {
     this.statPoints = data.statPoints ?? 0
     this.statLevels = (data.statLevels ?? {}) as Partial<Record<StatKey, number>>
     this.statResetCount = data.statResetCount ?? 0
+    this.respawnCount = data.respawnCount ?? 0
   }
 
   persist(): void {
@@ -70,6 +72,7 @@ class GameStateClass {
       statPoints: this.statPoints,
       statLevels: { ...this.statLevels },
       statResetCount: this.statResetCount,
+      respawnCount: this.respawnCount,
     }
     void this.store.save(data)
   }
@@ -152,6 +155,7 @@ class GameStateClass {
     this.statPoints = 0
     this.statLevels = {}
     this.statResetCount = 0
+    this.respawnCount = 0
     this.lastOutcome = null
   }
 
