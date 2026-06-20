@@ -46,6 +46,9 @@ export class UIScene extends Phaser.Scene {
     this.player = data.player
     this.mode = data.mode ?? 'run'
     this.info = data.info ?? ''
+    // Resetear trackers para que el primer update() siempre refresque los textos
+    this.lastLevel = -1
+    this.lastHp = -1
   }
 
   create() {
