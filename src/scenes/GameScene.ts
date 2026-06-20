@@ -8,7 +8,9 @@ import { GameState } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
 import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
 import { SKILLS, STARTING_SKILL } from '../data/skills'
+import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
+import type { BiomeDef } from '../data/biomes'
 import { DIRS, keyOf } from '../dungeon/types'
 import type { Dir, Dungeon, RoomData } from '../dungeon/types'
 import type { CombatContext, EnemyContext } from '../combat/types'
@@ -38,6 +40,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private dungeon?: Dungeon
   private current?: RoomData
+  private biome?: BiomeDef
+  private wallColor = 0x4a3728
   private doorZones: Array<{ dir: Dir; rect: Phaser.Geom.Rectangle }> = []
   private portalZones: Array<{ kind: PortalKind; rect: Phaser.Geom.Rectangle }> = []
   private transitionLockUntil = 0
@@ -54,7 +58,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   create() {
     this.createPlaceholderTextures()
-    this.add.rectangle(W / 2, H / 2, W, H, this.mode === 'base' ? 0x2c3e50 : 0x2d5a27).setDepth(-10)
+
+    // Bioma de la incursión (colores + pool de enemigos)
+    let floorColor = 0x2c3e50 // base
+    if (this.mode === 'run') {
+      this.biome = BIOMES[Phaser.Utils.Array.GetRandom(BIOME_KEYS)]
+      floorColor = this.biome.floorColor
+      this.wallColor = this.biome.wallColor
+    }
+    this.add.rectangle(W / 2, H / 2, W, H, floorColor).setDepth(-10)
 
     this.projectiles = this.physics.add.group({ classType: Projectile, maxSize: 32, runChildUpdate: true })
     this.enemyProjectiles = this.physics.add.group({ classType: Projectile, maxSize: 48, runChildUpdate: true })
@@ -101,7 +113,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
 
     this.transitionLockUntil = this.time.now + TRANSITION_LOCK_MS
-    this.scene.launch('UIScene', { player: this.player, mode: this.mode })
+    const info =
+      this.mode === 'run'
+        ? `${this.biome?.name ?? ''} · Prof ${GameState.depth}`
+        : `Base · Prof ${GameState.depth}`
+    this.scene.launch('UIScene', { player: this.player, mode: this.mode, info })
   }
 
   // --- BASE ---
@@ -137,7 +153,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.current = room
     this.buildWalls(room)
     this.buildDoors(room)
-    if (!room.cleared) this.spawnRoomEnemies()
+    if (!room.cleared) {
+      if (room.type === 'boss') this.spawnBoss()
+      else this.spawnRoomEnemies()
+    }
     // Portal de regreso a la base en la sala inicial de la incursión
     if (this.dungeon && room === this.dungeon.start) {
       this.addPortal('base', W / 2, 44, 0xe67e22, 'VOLVER')
@@ -157,7 +176,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private addWall(cx: number, cy: number, w: number, h: number): void {
     const wall = this.walls.create(cx, cy, 'px') as Phaser.Physics.Arcade.Sprite
-    wall.setDisplaySize(w, h).setTint(0x4a3728).refreshBody()
+    wall.setDisplaySize(w, h).setTint(this.wallColor).refreshBody()
   }
 
   private buildWalls(room: RoomData): void {
@@ -208,10 +227,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
   }
 
+  /** Escala según nivel del jugador + profundidad (bosses derrotados). */
+  private difficultyScale(): number {
+    return 1 + 0.15 * (this.player.level - 1) + 0.25 * GameState.depth
+  }
+
   private spawnRoomEnemies(): void {
-    const pool = Object.keys(ENEMIES)
+    const pool = this.biome?.enemies ?? Object.keys(ENEMIES)
     const count = Phaser.Math.Between(2, 4)
-    const scale = 1 + 0.15 * (this.player.level - 1)
+    const scale = this.difficultyScale()
     for (let i = 0; i < count; i++) {
       const key = Phaser.Utils.Array.GetRandom(pool)
       const x = Phaser.Math.Between(WALL + 20, W - WALL - 20)
@@ -223,6 +247,24 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       }
       this.enemies.add(enemy)
     }
+  }
+
+  private spawnBoss(): void {
+    const bossKey = this.biome?.boss ?? 'golem'
+    const boss = new Enemy(this, W / 2, H / 2, ENEMIES[bossKey], this, this.difficultyScale())
+    boss.onDeath = e => this.onBossDefeated(e)
+    this.enemies.add(boss)
+  }
+
+  private onBossDefeated(boss: Enemy): void {
+    this.player.gainXp(boss.xpReward)
+    // Drop garantizado de arma
+    const key = Phaser.Utils.Array.GetRandom(Object.keys(WEAPONS))
+    this.pickups.add(new Pickup(this, boss.x, boss.y, 'weapon', key, WEAPONS[key].color))
+    // Sube la profundidad (dificultad + recompensa futura)
+    GameState.depth++
+    GameState.persist()
+    this.events.emit('boss', GameState.depth)
   }
 
   private maybeDropLoot(x: number, y: number): void {

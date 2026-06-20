@@ -9,6 +9,8 @@ export interface SaveData {
   level: number
   xp: number
   stash: StashItem[]
+  /** Profundidad: sube al derrotar bosses, escala la dificultad. */
+  depth?: number
 }
 
 /**

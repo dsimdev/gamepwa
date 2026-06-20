@@ -11,6 +11,7 @@ import type { SaveData, StashItem } from './SaveStore'
 class GameStateClass {
   level = 1
   xp = 0
+  depth = 0
   stash: StashItem[] = []
 
   // En memoria (no se persiste): equipo que llevás encima
@@ -24,13 +25,14 @@ class GameStateClass {
     if (data) {
       this.level = data.level
       this.xp = data.xp
+      this.depth = data.depth ?? 0
       this.stash = data.stash ?? []
     }
   }
 
   /** Persiste lo que debe sobrevivir a un cierre del juego. */
   persist(): void {
-    const data: SaveData = { level: this.level, xp: this.xp, stash: this.stash }
+    const data: SaveData = { level: this.level, xp: this.xp, depth: this.depth, stash: this.stash }
     void this.store.save(data)
   }
 

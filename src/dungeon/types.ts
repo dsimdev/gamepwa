@@ -1,5 +1,5 @@
 export type Dir = 'n' | 's' | 'e' | 'w'
-export type RoomType = 'start' | 'normal'
+export type RoomType = 'start' | 'normal' | 'boss'
 
 export interface RoomData {
   x: number

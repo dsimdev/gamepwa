@@ -27,13 +27,19 @@ export class UIScene extends Phaser.Scene {
     super({ key: 'UIScene' })
   }
 
-  init(data: { player: Player }) {
+  private info = ''
+
+  init(data: { player: Player; info?: string }) {
     this.player = data.player
+    this.info = data.info ?? ''
   }
 
-  private listenStash() {
-    this.player.scene.events.off('stashed')
-    this.player.scene.events.on('stashed', (count: number) => this.showToast(`Guardado (${count})`))
+  private listenEvents() {
+    const ev = this.player.scene.events
+    ev.off('stashed')
+    ev.on('stashed', (count: number) => this.showToast(`Guardado (${count})`))
+    ev.off('boss')
+    ev.on('boss', (depth: number) => this.showToast(`¡Boss derrotado! Prof ${depth}`))
   }
 
   create() {
@@ -59,8 +65,11 @@ export class UIScene extends Phaser.Scene {
       .text(MARGIN, this.scale.height - 8, '', { fontSize: '7px', color: '#ecf0f1' })
       .setOrigin(0, 1)
 
+    // Info de bioma / profundidad (arriba al centro)
+    this.add.text(this.scale.width / 2, 4, this.info, { fontSize: '7px', color: '#95a5a6' }).setOrigin(0.5, 0)
+
     this.setupTouchControls()
-    this.listenStash()
+    this.listenEvents()
   }
 
   update() {

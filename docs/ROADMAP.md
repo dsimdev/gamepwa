@@ -15,6 +15,14 @@ Versionado semántico `x.y.z`. Cada hito = una rama `feat/*` que se integra a `d
 | `v0.9.0` | Contenido + balance | Boss, biomas, tuning de dificultad | ⏳ Próximo |
 | `v1.0.0` | Release | Pulido, primera versión a `main` (producción) | |
 
+## Pendientes de balance / tuning (para una pasada antes de v1.0.0)
+
+- **Droprate** de loot (hoy 30%, peso 70% arma / 30% skill) — ajustar.
+- Economía de maná (coste/regen) y coste de vida del melee.
+- Ritmo de subida de nivel (curva de XP) y escalado por profundidad.
+- Dificultad del boss y cantidad de enemigos por sala.
+- ¿Boss obligatorio? (hoy la sala de boss es opcional) — definir si es la meta de la run.
+
 ## Convención de ramas
 
 - `feat/<hito>` — desarrollo de cada hito (ej. `feat/mobile-input`)
