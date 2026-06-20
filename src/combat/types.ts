@@ -9,6 +9,8 @@ export interface Damageable {
 export interface CombatContext {
   spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, element?: ElementType): void
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void
+  /** Intenta consumir 1 unidad de ammo del elemento dado. Devuelve false si no hay. */
+  consumeAmmo(element: ElementType): boolean
 }
 
 export interface EnemyContext {

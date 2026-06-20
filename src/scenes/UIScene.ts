@@ -8,7 +8,9 @@ import { WEAPONS } from '../data/weapons'
 import { isUnbreakable } from '../items/types'
 import { addLabel, COLORS, CSS } from '../ui/theme'
 import { ELEMENT_CSS, ELEMENT_NAMES } from '../data/elements'
+import { STAT_DEFS, STAT_KEYS } from '../data/playerStats'
 import type { ItemInstance } from '../items/types'
+import type { StatKey } from '../data/playerStats'
 
 const HEART_SIZE = 8
 const HEART_GAP = 10
@@ -27,12 +29,14 @@ export class UIScene extends Phaser.Scene {
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
   private levelText!: Phaser.GameObjects.Text
+  private coinsText!: Phaser.GameObjects.Text
+  private pointsText!: Phaser.GameObjects.Text
   private equipText!: Phaser.GameObjects.Text
   private lastHp = -1
   private lastLevel = -1
 
   private panel?: Phaser.GameObjects.Container
-  private panelKind?: 'bag' | 'stash'
+  private panelKind?: 'bag' | 'stash' | 'stats'
 
   constructor() {
     super({ key: 'UIScene' })
@@ -55,10 +59,13 @@ export class UIScene extends Phaser.Scene {
     this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, COLORS.manaDim).setOrigin(0, 0)
     this.manaBar = this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 3, MANA_BAR_W, MANA_BAR_H, COLORS.mana).setOrigin(0, 0)
 
-    this.levelText = addLabel(this, width - 4, 5, 'Lv 1', 8, CSS.yellow).setOrigin(1, 0)
+    this.levelText  = addLabel(this, width - 4, 5,  'Lv 1',  8, CSS.yellow).setOrigin(1, 0)
+    this.coinsText  = addLabel(this, width - 4, 15, '◈ 0',   7, CSS.yellow).setOrigin(1, 0)
+    this.pointsText = addLabel(this, width - 4, 24, '',      7, CSS.yellow).setOrigin(1, 0)
 
-    this.addTextButton(width - 4, 16, '[BAG]', () => this.togglePanel('bag'))
-    if (this.mode !== 'run') this.addTextButton(width - 4, 27, '[BAÚL]', () => this.togglePanel('stash'))
+    this.addTextButton(width - 4, 34, '[BAG]',   () => this.togglePanel('bag'))
+    this.addTextButton(width - 4, 44, '[STATS]', () => this.togglePanel('stats'))
+    if (this.mode !== 'run') this.addTextButton(width - 4, 54, '[BAÚL]', () => this.togglePanel('stash'))
 
     this.equipText = addLabel(this, MARGIN, this.scale.height - 7, '', 8, CSS.light).setOrigin(0, 1)
     addLabel(this, this.scale.width / 2, 4, this.info, 8, CSS.light).setOrigin(0.5, 0)
@@ -102,11 +109,18 @@ export class UIScene extends Phaser.Scene {
       this.levelText.setText(`Lv ${this.player.level}`)
     }
 
+    this.coinsText.setText(`◈ ${GameState.coins}`)
+
+    const pts = GameState.statPoints
+    this.pointsText.setText(pts > 0 ? `★ ${pts} pts` : '')
+
     const item = this.player.equippedItem
     const def = WEAPONS[item.key]
-    const elColor = def?.element ? ELEMENT_CSS[def.element] : CSS.light
+    const el = def?.element
+    const elColor = el ? ELEMENT_CSS[el] : CSS.light
+    const ammoStr = el ? `  ◆ ${GameState.ammo[el]}` : ''
     this.equipText.setColor(elColor)
-    this.equipText.setText(`A: ${this.itemLabel(item)}`)
+    this.equipText.setText(`A: ${this.itemLabel(item)}${ammoStr}`)
   }
 
   private itemLabel(item: ItemInstance): string {
@@ -117,13 +131,10 @@ export class UIScene extends Phaser.Scene {
     return `${def.name}${durStr}${elStr}`
   }
 
-  // --- Paneles (bag / baúl) ---
+  // --- Paneles ---
 
-  private togglePanel(kind: 'bag' | 'stash') {
-    if (this.panel && this.panelKind === kind) {
-      this.closePanel()
-      return
-    }
+  private togglePanel(kind: 'bag' | 'stash' | 'stats') {
+    if (this.panel && this.panelKind === kind) { this.closePanel(); return }
     this.closePanel()
     this.panelKind = kind
     this.refreshPanel()
@@ -136,15 +147,22 @@ export class UIScene extends Phaser.Scene {
   }
 
   private refreshPanel() {
+    if (this.panelKind === 'stats') { this.buildStatsPanel(); return }
+    this.buildInventoryPanel()
+  }
+
+  // --- Inventario (bag / baúl) ---
+
+  private buildInventoryPanel() {
     this.panel?.destroy()
     const { width, height } = this.scale
     const isBag = this.panelKind === 'bag'
     const items = isBag ? GameState.bag : GameState.stash
     const title = isBag ? `BAG (${items.length}/${GameState.bagCapacity})` : `BAÚL (${items.length})`
 
-    const bg = this.add.rectangle(0, 0, width, height, 0x0a0a16, 0.92).setOrigin(0, 0)
+    const bg   = this.add.rectangle(0, 0, width, height, 0x0a0a16, 0.92).setOrigin(0, 0)
     const head = addLabel(this, width / 2, 10, title, 9, CSS.cyan).setOrigin(0.5, 0)
-    const sub = addLabel(this, width / 2, 22, isBag ? '(tocá un arma para equipar)' : '(tocá para pasar a la bag)', 6, CSS.dim).setOrigin(0.5, 0)
+    const sub  = addLabel(this, width / 2, 22, isBag ? '(tocá para equipar)' : '(tocá para pasar a bag)', 6, CSS.dim).setOrigin(0.5, 0)
 
     const rows: Phaser.GameObjects.GameObject[] = []
     if (items.length === 0) {
@@ -153,7 +171,7 @@ export class UIScene extends Phaser.Scene {
       items.forEach((item, i) => {
         const def = WEAPONS[item.key]
         const rowColor = def?.element ? ELEMENT_CSS[def.element] : CSS.light
-        const row = addLabel(this, 20, 36 + i * 13, `• ${this.itemLabel(item)}`, 8, rowColor)
+        const row = addLabel(this, 14, 36 + i * 13, `• ${this.itemLabel(item)}`, 8, rowColor)
           .setOrigin(0, 0)
           .setInteractive({ useHandCursor: true })
           .on(Phaser.Input.Events.POINTER_DOWN, () => (isBag ? this.equipFromBag(i) : this.withdraw(i)))
@@ -161,7 +179,7 @@ export class UIScene extends Phaser.Scene {
       })
     }
 
-    const eq = addLabel(this, width / 2, height - 22, `Equipado: ${this.itemLabel(this.player.equippedItem)}`, 7, CSS.green).setOrigin(0.5, 0)
+    const eq    = addLabel(this, width / 2, height - 22, `Equipado: ${this.itemLabel(this.player.equippedItem)}`, 7, CSS.green).setOrigin(0.5, 0)
     const close = addLabel(this, width / 2, height - 12, 'cerrar', 7, CSS.dim)
       .setOrigin(0.5, 0)
       .setInteractive({ useHandCursor: true })
@@ -169,6 +187,69 @@ export class UIScene extends Phaser.Scene {
 
     this.panel = this.add.container(0, 0, [bg, head, sub, ...rows, eq, close]).setDepth(5000)
   }
+
+  // --- Panel STATS ---
+
+  private buildStatsPanel() {
+    this.panel?.destroy()
+    const { width, height } = this.scale
+    const pts = GameState.statPoints
+
+    const bg   = this.add.rectangle(0, 0, width, height, 0x0a0a16, 0.95).setOrigin(0, 0)
+    const head = addLabel(this, width / 2, 8, 'STATS', 9, CSS.cyan).setOrigin(0.5, 0)
+    const ptsLbl = addLabel(this, width / 2, 19,
+      pts > 0 ? `★ ${pts} puntos disponibles` : 'Sin puntos disponibles',
+      7, pts > 0 ? CSS.yellow : CSS.dim).setOrigin(0.5, 0)
+
+    const children: Phaser.GameObjects.GameObject[] = [bg, head, ptsLbl]
+
+    STAT_KEYS.forEach((key: StatKey, i: number) => {
+      const def  = STAT_DEFS[key]
+      const val  = this.statCurrentValue(key)
+      const y    = 31 + i * 16
+
+      const nameLbl = addLabel(this, 10, y, def.label, 7, CSS.light).setOrigin(0, 0)
+      const valLbl  = addLabel(this, width - 48, y, val, 7, CSS.cyan).setOrigin(1, 0)
+      const gainLbl = addLabel(this, width - 46, y, def.gainLabel, 6, CSS.dim).setOrigin(0, 0)
+      children.push(nameLbl, valLbl, gainLbl)
+
+      if (pts > 0) {
+        const plusBtn = addLabel(this, width - 4, y, '[+]', 7, CSS.yellow)
+          .setOrigin(1, 0)
+          .setInteractive({ useHandCursor: true })
+          .on(Phaser.Input.Events.POINTER_DOWN, () => {
+            if (GameState.allocateStat(key)) {
+              this.player.scene.events.emit('statschanged')
+              this.buildStatsPanel()
+            }
+          })
+        children.push(plusBtn)
+      }
+    })
+
+    const close = addLabel(this, width / 2, height - 10, 'cerrar', 7, CSS.dim)
+      .setOrigin(0.5, 0)
+      .setInteractive({ useHandCursor: true })
+      .on(Phaser.Input.Events.POINTER_DOWN, () => this.closePanel())
+    children.push(close)
+
+    this.panel = this.add.container(0, 0, children).setDepth(5000)
+  }
+
+  private statCurrentValue(key: StatKey): string {
+    const s = this.player.stats
+    switch (key) {
+      case 'hp':        return `${s.maxHp}`
+      case 'hpRegen':   return `${s.hpRegen.toFixed(1)}/s`
+      case 'mana':      return `${s.maxMana}`
+      case 'manaRegen': return `${s.manaRegen.toFixed(1)}/s`
+      case 'attack':    return `${s.rangedDamage}`
+      case 'defense':   return `${s.defense}`
+      case 'moveSpeed': return `${Math.round(s.moveSpeed)}`
+    }
+  }
+
+  // --- Equipar / retirar ---
 
   private equipFromBag(i: number) {
     const item = GameState.bag[i]
@@ -180,11 +261,11 @@ export class UIScene extends Phaser.Scene {
     GameState.equipped = item
     GameState.persist()
     this.showToast(`Equipado: ${WEAPONS[item.key]?.name ?? item.key}`)
-    this.refreshPanel()
+    this.buildInventoryPanel()
   }
 
   private withdraw(i: number) {
-    if (GameState.withdrawFromStash(i)) this.refreshPanel()
+    if (GameState.withdrawFromStash(i)) this.buildInventoryPanel()
     else this.showToast('Bag llena')
   }
 

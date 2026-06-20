@@ -4,9 +4,10 @@ import { Enemy } from '../entities/Enemy'
 import { Pickup } from '../entities/Pickup'
 import { InputManager } from '../systems/InputManager'
 import { Projectile } from '../combat/Projectile'
-import { GameState } from '../systems/GameState'
+import { GameState, STAT_POINTS_PER_LEVEL } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
 import { WEAPONS, LOOTABLE_WEAPONS } from '../data/weapons'
+import { ELEMENT_COLORS, ELEMENT_NAMES } from '../data/elements'
 import { makeItem } from '../items/types'
 import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
@@ -95,12 +96,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.player.equip(GameState.equipped)
     this.player.applyProgression(GameState.level, GameState.xp)
 
-    // Persistir al subir de nivel (off primero: la escena reusa el emitter al reiniciar)
     this.events.off('levelup')
     this.events.on('levelup', () => {
       GameState.level = this.player.progression.level
       GameState.xp = this.player.progression.xp
-      GameState.persist()
+      GameState.addStatPoints(STAT_POINTS_PER_LEVEL)
+    })
+
+    this.events.off('statschanged')
+    this.events.on('statschanged', () => {
+      this.player.rebuildStats()
     })
 
     // Al romperse el arma: el equipo pasó a puños; persistir y avisar
@@ -335,19 +340,42 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private onBossDefeated(boss: Enemy): void {
     this.player.gainXp(boss.xpReward)
+    const bx = boss.x
+    const by = boss.y
     // Drop garantizado de arma
     const key = Phaser.Utils.Array.GetRandom(LOOTABLE_WEAPONS)
-    this.pickups.add(new Pickup(this, boss.x, boss.y, 'weapon', key, WEAPONS[key].color))
-    // Sube la profundidad (dificultad + recompensa futura)
+    this.pickups.add(new Pickup(this, bx, by, 'weapon', key, WEAPONS[key].color))
+    // Ammo: 15 de cada elemento
+    const elements: ElementType[] = ['fire', 'electro', 'plasma']
+    elements.forEach((el, i) => {
+      this.pickups.add(new Pickup(this, bx + (i - 1) * 12, by + 14, 'ammo', el, ELEMENT_COLORS[el], 15))
+    })
+    // Coins: 15-25
+    const coins = Phaser.Math.Between(15, 25)
+    this.pickups.add(new Pickup(this, bx, by - 12, 'coin', 'coin', 0xffd700, coins))
     GameState.depth++
     GameState.persist()
     this.events.emit('boss', GameState.depth)
   }
 
   private maybeDropLoot(x: number, y: number): void {
-    if (Math.random() > DROP_CHANCE) return
-    const key = Phaser.Utils.Array.GetRandom(LOOTABLE_WEAPONS)
-    this.pickups.add(new Pickup(this, x, y, 'weapon', key, WEAPONS[key].color))
+    // Weapon (30%)
+    if (Math.random() < DROP_CHANCE) {
+      const key = Phaser.Utils.Array.GetRandom(LOOTABLE_WEAPONS)
+      this.pickups.add(new Pickup(this, x, y, 'weapon', key, WEAPONS[key].color))
+    }
+    // Ammo (60%): random element, 4-10 units
+    if (Math.random() < 0.6) {
+      const elements: ElementType[] = ['fire', 'electro', 'plasma']
+      const el = Phaser.Utils.Array.GetRandom(elements)
+      const qty = Phaser.Math.Between(4, 10)
+      this.pickups.add(new Pickup(this, x + Phaser.Math.Between(-8, 8), y + Phaser.Math.Between(-8, 8), 'ammo', el, ELEMENT_COLORS[el], qty))
+    }
+    // Coins (70%): 1-3
+    if (Math.random() < 0.7) {
+      const qty = Phaser.Math.Between(1, 3)
+      this.pickups.add(new Pickup(this, x + Phaser.Math.Between(-6, 6), y + 8, 'coin', 'coin', 0xffd700, qty))
+    }
   }
 
   private placePlayerAtDoor(entryDir: Dir): void {
@@ -425,6 +453,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       new Phaser.Math.Vector2(0, 4),
     ], true)
     g.generateTexture('pickup', 8, 8)
+    // Ammo pickup: small circle (tinted by element at spawn time)
+    g.clear()
+    g.fillStyle(0xffffff)
+    g.fillCircle(3, 3, 3)
+    g.generateTexture('ammo_pickup', 6, 6)
+    // Coin pickup: small square
+    g.clear()
+    g.fillStyle(0xffd700)
+    g.fillRect(1, 1, 5, 5)
+    g.generateTexture('coin_pickup', 6, 6)
     for (const def of Object.values(ENEMIES)) {
       g.clear()
       g.fillStyle(def.color)
@@ -435,6 +473,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   // --- CombatContext / EnemyContext ---
+
+  consumeAmmo(element: ElementType): boolean {
+    if (GameState.consumeAmmo(element)) return true
+    this.events.emit('toast', `Sin munición [${ELEMENT_NAMES[element]}]`)
+    return false
+  }
 
   spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, element?: ElementType): void {
     const proj = this.projectiles.get() as Projectile | null
@@ -481,13 +525,24 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private onPickup: Phaser.Types.Physics.Arcade.ArcadePhysicsCallback = (_player, obj) => {
     const pick = obj as Pickup
-    if (!pick.active || pick.kind !== 'weapon') return
-    // El loot NO se autoequipa: va a la bag (si hay lugar)
-    if (GameState.addToBag(makeItem(pick.itemKey))) {
-      this.events.emit('toast', `${WEAPONS[pick.itemKey].name} → bag`)
+    if (!pick.active) return
+
+    if (pick.kind === 'weapon') {
+      if (GameState.addToBag(makeItem(pick.itemKey))) {
+        this.events.emit('toast', `${WEAPONS[pick.itemKey].name} → bag`)
+        pick.destroy()
+      } else {
+        this.events.emit('toast', 'Bag llena')
+      }
+    } else if (pick.kind === 'ammo') {
+      const el = pick.itemKey as ElementType
+      GameState.addAmmo(el, pick.amount)
+      this.events.emit('toast', `+${pick.amount} ${ELEMENT_NAMES[el]}`)
       pick.destroy()
-    } else {
-      this.events.emit('toast', 'Bag llena')
+    } else if (pick.kind === 'coin') {
+      GameState.addCoins(pick.amount)
+      this.events.emit('toast', `+${pick.amount} ◈`)
+      pick.destroy()
     }
   }
 

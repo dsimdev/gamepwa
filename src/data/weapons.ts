@@ -8,13 +8,8 @@ export interface WeaponDef {
   type: WeaponType
   damage: number
   cooldownMs: number
-  /** Coste de vida por golpe (solo melee). */
   hpCost?: number
-  /** Coste de maná por disparo (solo ranged). */
-  manaCost?: number
-  /** Alcance de la hitbox (solo melee). */
   range?: number
-  /** 0 = indestructible (navaja). */
   maxDurability: number
   color: number
   element?: ElementType
@@ -39,7 +34,6 @@ export const WEAPONS: Record<string, WeaponDef> = {
     element: 'fire',
     damage: 2,
     cooldownMs: 500,
-    manaCost: 3,
     maxDurability: 24,
     color: 0xff5500,
   },
@@ -50,7 +44,6 @@ export const WEAPONS: Record<string, WeaponDef> = {
     element: 'electro',
     damage: 3,
     cooldownMs: 700,
-    manaCost: 4,
     maxDurability: 20,
     color: 0xffd700,
   },
@@ -61,7 +54,6 @@ export const WEAPONS: Record<string, WeaponDef> = {
     element: 'plasma',
     damage: 2,
     cooldownMs: 450,
-    manaCost: 3,
     maxDurability: 28,
     color: 0xb14aff,
   },

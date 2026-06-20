@@ -3,9 +3,10 @@ import { InputManager } from '../systems/InputManager'
 import { Resource } from '../components/Resource'
 import { Progression } from '../components/Progression'
 import { applyDefense } from '../components/Stats'
-import { statsForLevel } from '../data/playerStats'
+import { computeStats } from '../data/playerStats'
 import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
 import { makeItem, isUnbreakable, KNIFE_KEY } from '../items/types'
+import { GameState } from '../systems/GameState'
 import type { StatBlock } from '../components/Stats'
 import type { WeaponDef } from '../data/weapons'
 import type { ItemInstance } from '../items/types'
@@ -42,8 +43,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.inputManager = input
     this.combat = combat
 
-    this.stats = statsForLevel(1)
-    this.health = new Resource(this.stats.maxHp)
+    this.stats = computeStats(1, GameState.statLevels)
+    this.health = new Resource(this.stats.maxHp, this.stats.hpRegen)
     this.mana = new Resource(this.stats.maxMana, this.stats.manaRegen)
 
     this.setCollideWorldBounds(true)
@@ -61,6 +62,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   update(_time: number, delta: number): void {
+    this.health.update(delta)
     this.mana.update(delta)
 
     const move = this.inputManager.getMove()
@@ -81,17 +83,20 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     const now = this.scene.time.now
     if (now < this.nextAttackAt) return
 
+    const cooldown = this.weapon.cooldownMs
+
     if (this.weapon.type === 'melee') {
-      this.nextAttackAt = now + this.weapon.cooldownMs
+      this.nextAttackAt = now + cooldown
       this.meleeSwing()
+      this.degradeWeapon()
     } else {
-      const cost = this.weapon.manaCost ?? 0
-      if (!this.mana.spend(cost)) return
-      this.nextAttackAt = now + this.weapon.cooldownMs
+      const el = this.weapon.element as ElementType
+      if (!this.combat.consumeAmmo(el)) return
+      this.nextAttackAt = now + cooldown
       const dmg = this.stats.rangedDamage + this.weapon.damage
-      this.combat.spawnPlayerProjectile(this.x, this.y, this.facing.clone(), dmg, this.weapon.element as ElementType | undefined)
+      this.combat.spawnPlayerProjectile(this.x, this.y, this.facing.clone(), dmg, el)
+      this.degradeWeapon()
     }
-    this.degradeWeapon()
   }
 
   private degradeWeapon(): void {
@@ -121,20 +126,25 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     if (now < this.invulnUntil || this.isDead) return
     this.health.damage(applyDefense(amount, this.stats.defense))
     this.invulnUntil = now + INVULN_MS
-
     if (this.isDead) {
       this.setTint(0x555555)
       this.setVelocity(0, 0)
     }
   }
 
+  /** Rebuilds stats from character level + invested stat points. Call after level-up or stat allocation. */
+  rebuildStats(): void {
+    this.stats = computeStats(this.progression.level, GameState.statLevels)
+    this.health.max = this.stats.maxHp
+    this.health.regenPerSec = this.stats.hpRegen
+    this.mana.max = this.stats.maxMana
+    this.mana.regenPerSec = this.stats.manaRegen
+  }
+
   applyProgression(level: number, xp: number): void {
     this.progression.level = level
     this.progression.xp = xp
-    this.stats = statsForLevel(level)
-    this.health.max = this.stats.maxHp
-    this.mana.max = this.stats.maxMana
-    this.mana.regenPerSec = this.stats.manaRegen
+    this.rebuildStats()
     this.health.current = this.health.max
     this.mana.current = this.mana.max
   }
@@ -145,10 +155,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   private onLevelUp(): void {
-    this.stats = statsForLevel(this.progression.level)
-    this.health.max = this.stats.maxHp
-    this.mana.max = this.stats.maxMana
-    this.mana.regenPerSec = this.stats.manaRegen
+    this.rebuildStats()
     this.health.current = this.health.max
     this.mana.current = this.mana.max
     this.scene.events.emit('levelup', this.progression.level)

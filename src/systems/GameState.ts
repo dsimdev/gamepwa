@@ -3,28 +3,28 @@ import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
 import { makeItem } from '../items/types'
 import type { SaveData } from './SaveStore'
 import type { ItemInstance } from '../items/types'
+import type { StatKey } from '../data/playerStats'
+import type { ElementType } from '../data/elements'
 
 const DEFAULT_BAG_CAPACITY = 8
+const STAT_POINTS_PER_LEVEL = 3
 
-/**
- * Estado global que sobrevive a los reinicios de escena (base ↔ run, muerte).
- * - equipped / stash (baúl) / level / xp / depth → persisten (IndexedDB)
- * - bag → solo en memoria: se pierde al morir o al recargar
- */
 class GameStateClass {
   level = 1
   xp = 0
   depth = 0
 
-  /** Arma equipada (persiste, se degrada). */
   equipped: ItemInstance = makeItem(STARTING_WEAPON)
-  /** Baúl: almacén persistente de la base. */
   stash: ItemInstance[] = []
-  /** Bag: lo que llevás encima en la run (en memoria, se pierde al morir). */
   bag: ItemInstance[] = []
   bagCapacity = DEFAULT_BAG_CAPACITY
 
-  // Feedback de la última incursión, para mostrar al volver a la base
+  coins = 0
+  ammo: Record<ElementType, number> = { fire: 0, electro: 0, plasma: 0 }
+
+  statPoints = 0
+  statLevels: Partial<Record<StatKey, number>> = {}
+
   lastOutcome: 'retreat' | 'death' | null = null
 
   private store = new IndexedDBSaveStore()
@@ -35,15 +35,21 @@ class GameStateClass {
     this.level = data.level
     this.xp = data.xp
     this.depth = data.depth ?? 0
-    // Baúl: filtrar a items válidos (migración de saves viejos)
     this.stash = (data.stash ?? [])
       .filter(it => it && WEAPONS[it.key])
       .map(it => ({ key: it.key, durability: it.durability ?? WEAPONS[it.key].maxDurability }))
-    // Equipo: validar; si no hay, arma inicial
     this.equipped =
       data.equipped && WEAPONS[data.equipped.key]
         ? { key: data.equipped.key, durability: data.equipped.durability }
         : makeItem(STARTING_WEAPON)
+    this.coins = data.coins ?? 0
+    this.ammo = {
+      fire:    data.ammo?.fire    ?? 0,
+      electro: data.ammo?.electro ?? 0,
+      plasma:  data.ammo?.plasma  ?? 0,
+    }
+    this.statPoints = data.statPoints ?? 0
+    this.statLevels = (data.statLevels ?? {}) as Partial<Record<StatKey, number>>
   }
 
   persist(): void {
@@ -53,8 +59,40 @@ class GameStateClass {
       depth: this.depth,
       stash: this.stash,
       equipped: this.equipped,
+      coins: this.coins,
+      ammo: { ...this.ammo },
+      statPoints: this.statPoints,
+      statLevels: { ...this.statLevels },
     }
     void this.store.save(data)
+  }
+
+  addStatPoints(n: number): void {
+    this.statPoints += n
+  }
+
+  allocateStat(key: StatKey): boolean {
+    if (this.statPoints <= 0) return false
+    this.statPoints--
+    this.statLevels[key] = (this.statLevels[key] ?? 0) + 1
+    this.persist()
+    return true
+  }
+
+  addCoins(amount: number): void {
+    this.coins += amount
+    this.persist()
+  }
+
+  addAmmo(element: ElementType, amount: number): void {
+    this.ammo[element] = (this.ammo[element] ?? 0) + amount
+    this.persist()
+  }
+
+  consumeAmmo(element: ElementType): boolean {
+    if ((this.ammo[element] ?? 0) <= 0) return false
+    this.ammo[element]--
+    return true
   }
 
   // --- Bag ---
@@ -73,7 +111,6 @@ class GameStateClass {
     this.bag = []
   }
 
-  /** Deposita toda la bag en el baúl. Devuelve cuántos guardó. */
   depositBag(): number {
     const n = this.bag.length
     this.stash.push(...this.bag)
@@ -82,7 +119,6 @@ class GameStateClass {
     return n
   }
 
-  /** Retira un item del baúl a la bag. */
   withdrawFromStash(index: number): boolean {
     if (index < 0 || index >= this.stash.length || this.bagFull) return false
     const [item] = this.stash.splice(index, 1)
@@ -93,3 +129,4 @@ class GameStateClass {
 }
 
 export const GameState = new GameStateClass()
+export { STAT_POINTS_PER_LEVEL }
