@@ -13,6 +13,19 @@ Roguelite ARPG táctil tipo **Soul Knight / Archero con progresión de Diablo**.
 3. **Combate melee + ranged con coste asimétrico (risk/reward)** — espada (hitbox direccional frontal) + magia/proyectiles. Mecánica central: **el ataque a distancia consume maná; el ataque melee consume vida.** El rango es seguro pero finito; el melee pega más fuerte pero cuesta sangre. Cada elección de combate tiene peso. El melee no puede dejar al jugador en 0 (no hay suicidio por golpe propio). Acción en tiempo real, foco en esquivar y posicionarse.
 4. **Progresión por niveles/stats (Diablo)** — XP, niveles, stats (daño, vida, defensa, etc.), loot con números, fórmulas de daño, balance numérico.
 
+## Controles / Skills (esquema objetivo)
+
+Dos botones de acción contextuales (mobile-first):
+
+- **A — Ataque (depende del arma equipada):**
+  - Arma **melee** (espada, etc.) → ataque cuerpo a cuerpo, **consume vida**.
+  - Arma **a distancia** (varita, arco, etc.) → proyectil, **consume maná**.
+- **B — Defensa (depende del skill/equipo):** **bloqueo** o **cura**, **consume maná**.
+
+Mantiene el coste asimétrico del pilar 3: la vida es el recurso del melee, el maná el del rango y la defensa. El comportamiento de **A** se resuelve consultando el arma equipada, por lo que su implementación completa depende del sistema de equipo (v0.7.0). **B (bloqueo/cura)** no depende de armas y puede implementarse antes.
+
+> Estado actual (hasta v0.5.0): A=melee fijo, B=proyectil mágico. Esquema placeholder hasta tener equipo.
+
 ## Decisiones de arquitectura
 
 ### 1. Entidades: componentes sobre Phaser (Decisión 1-B) ✅
