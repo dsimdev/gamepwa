@@ -1,9 +1,10 @@
 import Phaser from 'phaser'
 import { Player } from '../entities/Player'
+import { InputManager } from '../systems/InputManager'
 
 export class GameScene extends Phaser.Scene {
   private player!: Player
-  private debugGraphics!: Phaser.GameObjects.Graphics
+  private inputManager!: InputManager
 
   constructor() {
     super({ key: 'GameScene' })
@@ -28,7 +29,8 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(8, height / 2, 16, height, 0x4a3728)
     this.add.rectangle(width - 8, height / 2, 16, height, 0x4a3728)
 
-    this.player = new Player(this, width / 2, height / 2)
+    this.inputManager = new InputManager(this)
+    this.player = new Player(this, width / 2, height / 2, this.inputManager)
 
     this.cameras.main.startFollow(this.player, true, 0.1, 0.1)
     this.cameras.main.setBounds(0, 0, width, height)
