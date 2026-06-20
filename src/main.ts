@@ -9,7 +9,6 @@ const config: Phaser.Types.Core.GameConfig = {
   width: 320,
   height: 180,
   zoom: 3,
-  pixelArt: true,
   backgroundColor: '#0a0a16',
   physics: {
     default: 'arcade',

@@ -1,13 +1,16 @@
 import Phaser from 'phaser'
 
+export const FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', sans-serif"
+export const TEXT_RES = 4
+
 /** Paleta cyberpunk: neón sobre oscuro. */
 export const COLORS = {
   bg: 0x0a0a16,
   floorOverworld: 0x141826,
   wallOverworld: 0x2a2c4a,
-  player: 0x00e5ff, // cyan neón
-  projectile: 0x39ff14, // verde neón
-  enemyProjectile: 0xff2d95, // magenta neón
+  player: 0x00e5ff,
+  projectile: 0x39ff14,
+  enemyProjectile: 0xff2d95,
   hp: 0xff2d55,
   hpDim: 0x4a0d1a,
   mana: 0x00e5ff,
@@ -30,10 +33,6 @@ export const CSS = {
   red: '#ff2d55',
 } as const
 
-/** Resolución de rasterizado del texto: lo hace nítido pese al zoom ×3. */
-export const TEXT_RES = 4
-
-/** Texto legible (alta resolución + monospace). Usar SIEMPRE en vez de scene.add.text. */
 export function addLabel(
   scene: Phaser.Scene,
   x: number,
@@ -43,7 +42,7 @@ export function addLabel(
   color: string = CSS.light
 ): Phaser.GameObjects.Text {
   return scene.add.text(x, y, text, {
-    fontFamily: 'monospace',
+    fontFamily: FONT_FAMILY,
     fontStyle: 'bold',
     fontSize: `${size}px`,
     color,

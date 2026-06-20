@@ -15,6 +15,7 @@ import { DIRS, keyOf } from '../dungeon/types'
 import { addLabel, COLORS, CSS } from '../ui/theme'
 import type { Dir, Dungeon, RoomData } from '../dungeon/types'
 import type { CombatContext, EnemyContext } from '../combat/types'
+import type { ElementType } from '../data/elements'
 
 const DROP_CHANCE = 0.3
 
@@ -435,9 +436,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   // --- CombatContext / EnemyContext ---
 
-  spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number): void {
+  spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, element?: ElementType): void {
     const proj = this.projectiles.get() as Projectile | null
-    if (proj) proj.fire(x, y, dir, damage, 'projectile')
+    if (proj) proj.fire(x, y, dir, damage, 'projectile', element)
   }
 
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void {
@@ -461,7 +462,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const p = proj as Projectile
     const e = enemy as Enemy
     if (!p.active || e.isDead) return
-    e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y))
+    e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), p.element)
     p.kill()
   }
 

@@ -7,6 +7,7 @@ import { GameState } from '../systems/GameState'
 import { WEAPONS } from '../data/weapons'
 import { isUnbreakable } from '../items/types'
 import { addLabel, COLORS, CSS } from '../ui/theme'
+import { ELEMENT_CSS, ELEMENT_NAMES } from '../data/elements'
 import type { ItemInstance } from '../items/types'
 
 const HEART_SIZE = 8
@@ -101,13 +102,19 @@ export class UIScene extends Phaser.Scene {
       this.levelText.setText(`Lv ${this.player.level}`)
     }
 
-    this.equipText.setText(`A: ${this.itemLabel(this.player.equippedItem)}   B: ${this.player.skill.name}`)
+    const item = this.player.equippedItem
+    const def = WEAPONS[item.key]
+    const elColor = def?.element ? ELEMENT_CSS[def.element] : CSS.light
+    this.equipText.setColor(elColor)
+    this.equipText.setText(`A: ${this.itemLabel(item)}`)
   }
 
   private itemLabel(item: ItemInstance): string {
     const def = WEAPONS[item.key]
     if (!def) return item.key
-    return def.maxDurability > 0 ? `${def.name} ${item.durability}/${def.maxDurability}` : def.name
+    const durStr = def.maxDurability > 0 ? ` ${item.durability}/${def.maxDurability}` : ''
+    const elStr = def.element ? ` [${ELEMENT_NAMES[def.element]}]` : ''
+    return `${def.name}${durStr}${elStr}`
   }
 
   // --- Paneles (bag / baúl) ---
@@ -144,7 +151,9 @@ export class UIScene extends Phaser.Scene {
       rows.push(addLabel(this, width / 2, 44, 'Vacío', 8, CSS.dim).setOrigin(0.5, 0))
     } else {
       items.forEach((item, i) => {
-        const row = addLabel(this, 20, 36 + i * 13, `• ${this.itemLabel(item)}`, 8, CSS.light)
+        const def = WEAPONS[item.key]
+        const rowColor = def?.element ? ELEMENT_CSS[def.element] : CSS.light
+        const row = addLabel(this, 20, 36 + i * 13, `• ${this.itemLabel(item)}`, 8, rowColor)
           .setOrigin(0, 0)
           .setInteractive({ useHandCursor: true })
           .on(Phaser.Input.Events.POINTER_DOWN, () => (isBag ? this.equipFromBag(i) : this.withdraw(i)))
@@ -170,7 +179,7 @@ export class UIScene extends Phaser.Scene {
     this.player.equip(item)
     GameState.equipped = item
     GameState.persist()
-    this.showToast(`Equipado: ${WEAPONS[item.key].name}`)
+    this.showToast(`Equipado: ${WEAPONS[item.key]?.name ?? item.key}`)
     this.refreshPanel()
   }
 
@@ -199,9 +208,6 @@ export class UIScene extends Phaser.Scene {
     new ActionButton(this, width - 20, height - 18, COLORS.neonMagenta, 'A',
       () => this.registry.set(INPUT_KEYS.attack, true),
       () => this.registry.set(INPUT_KEYS.attack, false))
-    new ActionButton(this, width - 52, height - 40, COLORS.neonCyan, 'B',
-      () => this.registry.set(INPUT_KEYS.cast, true),
-      () => this.registry.set(INPUT_KEYS.cast, false))
   }
 
   private drawHealth(current: number, max: number) {

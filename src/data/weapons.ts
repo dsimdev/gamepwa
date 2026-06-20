@@ -1,9 +1,4 @@
-/**
- * Armas data-driven. El tipo define cómo se comporta el botón A:
- * - melee  → ataque cuerpo a cuerpo, consume vida (risk/reward)
- * - ranged → proyectil, consume maná
- * El daño del arma se SUMA al stat correspondiente del jugador.
- */
+import type { ElementType } from './elements'
 
 export type WeaponType = 'melee' | 'ranged'
 
@@ -11,7 +6,6 @@ export interface WeaponDef {
   key: string
   name: string
   type: WeaponType
-  /** Daño del arma (se suma a meleeDamage / rangedDamage del jugador). */
   damage: number
   cooldownMs: number
   /** Coste de vida por golpe (solo melee). */
@@ -20,70 +14,59 @@ export interface WeaponDef {
   manaCost?: number
   /** Alcance de la hitbox (solo melee). */
   range?: number
-  /** Durabilidad máxima; 0 = inquebrable (ej. puños). Se gasta por uso y al llegar a 0 el arma se destruye. */
+  /** 0 = indestructible (navaja). */
   maxDurability: number
-  /** Color placeholder del pickup. */
   color: number
+  element?: ElementType
 }
 
 export const WEAPONS: Record<string, WeaponDef> = {
-  fists: {
-    key: 'fists',
-    name: 'Puños',
+  knife: {
+    key: 'knife',
+    name: 'Filo Nano',
     type: 'melee',
     damage: 1,
-    cooldownMs: 300,
-    hpCost: 0,
-    range: 11,
-    maxDurability: 0, // inquebrable (fallback)
-    color: 0xd0a070,
-  },
-  sword: {
-    key: 'sword',
-    name: 'Vibrohoja',
-    type: 'melee',
-    damage: 2,
     cooldownMs: 350,
-    hpCost: 1,
-    range: 14,
-    maxDurability: 30,
-    color: 0x00e5ff,
+    hpCost: 0,
+    range: 12,
+    maxDurability: 0,
+    color: 0xaaaaaa,
   },
-  dagger: {
-    key: 'dagger',
-    name: 'Estilete',
-    type: 'melee',
-    damage: 1,
-    cooldownMs: 200,
-    hpCost: 1,
-    range: 10,
-    maxDurability: 24,
-    color: 0x6bffea,
-  },
-  wand: {
-    key: 'wand',
-    name: 'Emisor',
+  blaster: {
+    key: 'blaster',
+    name: 'Blaster Térmico',
     type: 'ranged',
-    damage: 1,
+    element: 'fire',
+    damage: 2,
+    cooldownMs: 500,
+    manaCost: 3,
+    maxDurability: 24,
+    color: 0xff5500,
+  },
+  railgun: {
+    key: 'railgun',
+    name: 'Rail Electro',
+    type: 'ranged',
+    element: 'electro',
+    damage: 3,
+    cooldownMs: 700,
+    manaCost: 4,
+    maxDurability: 20,
+    color: 0xffd700,
+  },
+  caster: {
+    key: 'caster',
+    name: 'Cañón Plasma',
+    type: 'ranged',
+    element: 'plasma',
+    damage: 2,
     cooldownMs: 450,
     manaCost: 3,
     maxDurability: 28,
     color: 0xb14aff,
   },
-  bow: {
-    key: 'bow',
-    name: 'Riel',
-    type: 'ranged',
-    damage: 2,
-    cooldownMs: 600,
-    manaCost: 2,
-    maxDurability: 22,
-    color: 0xffa600,
-  },
 }
 
-/** Arma con la que empieza un jugador nuevo. */
-export const STARTING_WEAPON = 'sword'
-
-/** Armas que pueden dropear (excluye puños). */
-export const LOOTABLE_WEAPONS = Object.keys(WEAPONS).filter(k => k !== 'fists')
+export const KNIFE_KEY = 'knife'
+export const STARTING_WEAPON = 'knife'
+export const LOOTABLE_WEAPONS = ['blaster', 'railgun', 'caster']
