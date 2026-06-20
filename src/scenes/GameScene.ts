@@ -375,7 +375,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const m = new Enemy(this, W / 2, H / 2, ENEMIES['miniboss'], this, this.difficultyScale())
     m.onDeath = e => this.onMinibossDefeated(e)
     this.enemies.add(m)
-    this.createBossBar('Centinela (mini-boss)')
+    this.boss = m  // reutilizar bossBar para el miniboss
+    this.createBossBar('⚡ Centinela')
   }
 
   private onMinibossDefeated(miniboss: Enemy): void {
@@ -828,6 +829,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     addLabel(this, W / 2, H / 2 - 80, 'MORISTE', 32, CSS.red).setOrigin(0.5).setScrollFactor(0).setDepth(3000)
     this.time.delayedCall(1400, () => {
       GameState.clearBag()
+      GameState.coins = 0  // coins no guardadas en stash se pierden al morir
+      GameState.persist()
       GameState.lastOutcome = 'death'
       this.switchScene('overworld')
     })
