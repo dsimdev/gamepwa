@@ -151,7 +151,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private addPortal(kind: PortalKind, x: number, y: number, color: number, label: string): void {
     this.add.rectangle(x, y, 22, 22, color, 0.4).setStrokeStyle(1, color)
-    this.add.text(x, y + 16, label, { fontSize: '6px', color: '#ffffff' }).setOrigin(0.5, 0)
+    if (label) this.add.text(x, y + 16, label, { fontSize: '6px', color: '#ffffff' }).setOrigin(0.5, 0)
     this.portalZones.push({ kind, rect: new Phaser.Geom.Rectangle(x - 11, y - 11, 22, 22) })
   }
 
@@ -173,9 +173,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       if (room.type === 'boss') this.spawnBoss()
       else this.spawnRoomEnemies()
     }
-    // Portal de regreso a la base en la sala inicial de la incursión
+    // Salida a la base: solo en la sala inicial (donde entraste). Sin cartel:
+    // el jugador debe conocer/recordar el mapa para volver a su base.
     if (this.dungeon && room === this.dungeon.start) {
-      this.addPortal('base', W / 2, 44, 0xe67e22, 'VOLVER')
+      this.addPortal('base', W / 2, 44, 0xe67e22, '')
     }
   }
 

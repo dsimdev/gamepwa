@@ -34,6 +34,8 @@ El juego es un **roguelite con hub** (tipo Hades / Children of Morta):
 - **Stash (almacén):** loot guardado en la base. **Persiste entre runs** (IndexedDB).
 - **Run / incursión:** dungeon procedural (las salas de v0.5.0). El loot recogido durante la run se lleva "encima".
 - **Muerte:** no es game-over. El jugador **vuelve a la base**. El loot que llevaba encima y **no guardó** en el stash **se pierde** (riesgo roguelite). Lo guardado en el stash queda.
+- **Retirada (volver con vida):** la única salida con vida está en la **sala inicial** (la entrada), sin cartel. El jugador debe **conocer/recordar el mapa** para volver. Retirarse **cura y conserva el loot**, pero termina la run (no boss, no profundidad): es un costo de oportunidad, no un escape gratis.
+- **B según arma:** melee → bloqueo; rango → cura. (Ver Controles.)
 
 Loop: `Base → (equipás del stash) → Portal → Run procedural → [morís o volvés] → Base → guardás loot → repetir`.
 
