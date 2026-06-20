@@ -26,6 +26,19 @@ Mantiene el coste asimétrico del pilar 3: la vida es el recurso del melee, el m
 
 > Estado actual (hasta v0.5.0): A=melee fijo, B=proyectil mágico. Esquema placeholder hasta tener equipo.
 
+## Estructura: Base/Hub y loop de run
+
+El juego es un **roguelite con hub** (tipo Hades / Children of Morta):
+
+- **Base (hub persistente):** el jugador arranca acá. Es una zona segura, no procedural, que persiste entre runs. Desde la base se sale a la incursión (portal/puerta). **A futuro se le agregan cosas:** mejoras, NPCs, cofres, estaciones.
+- **Stash (almacén):** loot guardado en la base. **Persiste entre runs** (IndexedDB).
+- **Run / incursión:** dungeon procedural (las salas de v0.5.0). El loot recogido durante la run se lleva "encima".
+- **Muerte:** no es game-over. El jugador **vuelve a la base**. El loot que llevaba encima y **no guardó** en el stash **se pierde** (riesgo roguelite). Lo guardado en el stash queda.
+
+Loop: `Base → (equipás del stash) → Portal → Run procedural → [morís o volvés] → Base → guardás loot → repetir`.
+
+Implementación: la base es una escena/sala propia; la transición base↔run y la persistencia del stash llegan en v0.8.0. El sistema de equipo (v0.7.0) es el cimiento del stash.
+
 ## Decisiones de arquitectura
 
 ### 1. Entidades: componentes sobre Phaser (Decisión 1-B) ✅

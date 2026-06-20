@@ -17,8 +17,11 @@ export class UIScene extends Phaser.Scene {
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
   private levelText!: Phaser.GameObjects.Text
+  private equipText!: Phaser.GameObjects.Text
   private lastHp = -1
   private lastLevel = -1
+  private lastWeapon = ''
+  private lastSkill = ''
 
   constructor() {
     super({ key: 'UIScene' })
@@ -46,6 +49,11 @@ export class UIScene extends Phaser.Scene {
       .text(width - 4, 5, 'Lv 1', { fontSize: '8px', color: '#f1c40f' })
       .setOrigin(1, 0)
 
+    // Equipo: A=arma / B=skill (abajo a la izquierda)
+    this.equipText = this.add
+      .text(MARGIN, this.scale.height - 8, '', { fontSize: '7px', color: '#ecf0f1' })
+      .setOrigin(0, 1)
+
     this.setupTouchControls()
   }
 
@@ -63,6 +71,32 @@ export class UIScene extends Phaser.Scene {
       this.lastLevel = this.player.level
       this.levelText.setText(`Lv ${this.player.level}`)
     }
+
+    // Equipo + toast al cambiar de arma/skill
+    const wKey = this.player.weapon.key
+    const sKey = this.player.skill.key
+    if (wKey !== this.lastWeapon || sKey !== this.lastSkill) {
+      this.equipText.setText(`A: ${this.player.weapon.name}   B: ${this.player.skill.name}`)
+      if (this.lastWeapon !== '' && wKey !== this.lastWeapon) this.showToast(`¡${this.player.weapon.name}!`)
+      if (this.lastSkill !== '' && sKey !== this.lastSkill) this.showToast(`¡${this.player.skill.name}!`)
+      this.lastWeapon = wKey
+      this.lastSkill = sKey
+    }
+  }
+
+  private showToast(text: string) {
+    const { width, height } = this.scale
+    const t = this.add
+      .text(width / 2, height - 50, text, { fontSize: '8px', color: '#ffffff' })
+      .setOrigin(0.5)
+    this.tweens.add({
+      targets: t,
+      y: t.y - 12,
+      alpha: 0,
+      duration: 1000,
+      ease: 'Cubic.Out',
+      onComplete: () => t.destroy(),
+    })
   }
 
   private showLevelUp(level: number) {

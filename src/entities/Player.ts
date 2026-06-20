@@ -4,14 +4,13 @@ import { Resource } from '../components/Resource'
 import { Progression } from '../components/Progression'
 import { applyDefense } from '../components/Stats'
 import { statsForLevel } from '../data/playerStats'
+import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
+import { SKILLS, STARTING_SKILL } from '../data/skills'
 import type { StatBlock } from '../components/Stats'
+import type { WeaponDef } from '../data/weapons'
+import type { SkillDef } from '../data/skills'
 import type { CombatContext, Damageable } from '../combat/types'
 
-const MELEE_COOLDOWN = 350
-const CAST_COOLDOWN = 450
-const MELEE_HP_COST = 1 // melee cuesta vida (risk/reward). Tunear acá.
-const CAST_MANA_COST = 3
-const MELEE_RANGE = 14
 const MELEE_WIDTH = 16
 const INVULN_MS = 600
 
@@ -24,12 +23,15 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   mana: Resource
   progression = new Progression()
 
-  /** Última dirección encarada (para ataques direccionales). */
+  weapon: WeaponDef = WEAPONS[STARTING_WEAPON]
+  skill: SkillDef = SKILLS[STARTING_SKILL]
+
   facing = new Phaser.Math.Vector2(0, 1)
 
-  private nextMeleeAt = 0
-  private nextCastAt = 0
+  private nextAttackAt = 0
+  private nextSkillAt = 0
   private invulnUntil = 0
+  private blocking = false
 
   constructor(scene: Phaser.Scene, x: number, y: number, input: InputManager, combat: CombatContext) {
     super(scene, x, y, 'player')
@@ -67,41 +69,83 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
       else if (move.x > 0) this.setFlipX(false)
     }
 
-    if (this.inputManager.justAttacked()) this.tryMelee()
-    if (this.inputManager.justCast()) this.tryCast()
+    // A = ataque según arma equipada
+    if (this.inputManager.justAttacked()) this.tryAttack()
+    // B = skill defensiva (cura o bloqueo)
+    this.updateSkill(delta)
 
-    this.setAlpha(this.scene.time.now < this.invulnUntil ? 0.5 : 1)
+    if (!this.blocking) {
+      this.setAlpha(this.scene.time.now < this.invulnUntil ? 0.5 : 1)
+    }
   }
 
-  private tryMelee(): void {
+  // --- A: ataque según arma ---
+
+  private tryAttack(): void {
     const now = this.scene.time.now
-    if (now < this.nextMeleeAt) return
-    if (this.health.current <= MELEE_HP_COST) return // no suicidarse con el propio golpe
-    this.nextMeleeAt = now + MELEE_COOLDOWN
+    if (now < this.nextAttackAt) return
 
-    this.health.damage(MELEE_HP_COST)
+    if (this.weapon.type === 'melee') {
+      const cost = this.weapon.hpCost ?? 0
+      if (cost > 0 && this.health.current <= cost) return // no suicidarse
+      this.nextAttackAt = now + this.weapon.cooldownMs
+      if (cost > 0) this.health.damage(cost)
+      this.meleeSwing()
+    } else {
+      const cost = this.weapon.manaCost ?? 0
+      if (!this.mana.spend(cost)) return
+      this.nextAttackAt = now + this.weapon.cooldownMs
+      const dmg = this.stats.rangedDamage + this.weapon.damage
+      this.combat.spawnPlayerProjectile(this.x, this.y, this.facing.clone(), dmg)
+    }
+  }
 
-    const cx = this.x + this.facing.x * MELEE_RANGE
-    const cy = this.y + this.facing.y * MELEE_RANGE
+  private meleeSwing(): void {
+    const range = this.weapon.range ?? 14
+    const cx = this.x + this.facing.x * range
+    const cy = this.y + this.facing.y * range
     const horizontal = Math.abs(this.facing.x) >= Math.abs(this.facing.y)
-    const w = horizontal ? MELEE_RANGE * 2 : MELEE_WIDTH
-    const h = horizontal ? MELEE_WIDTH : MELEE_RANGE * 2
+    const w = horizontal ? range * 2 : MELEE_WIDTH
+    const h = horizontal ? MELEE_WIDTH : range * 2
     const rect = new Phaser.Geom.Rectangle(cx - w / 2, cy - h / 2, w, h)
-
-    this.combat.meleePlayerHit(rect, this.stats.meleeDamage, new Phaser.Math.Vector2(this.x, this.y))
+    const dmg = this.stats.meleeDamage + this.weapon.damage
+    this.combat.meleePlayerHit(rect, dmg, new Phaser.Math.Vector2(this.x, this.y))
   }
 
-  private tryCast(): void {
+  // --- B: skill defensiva ---
+
+  private updateSkill(delta: number): void {
+    if (this.skill.type === 'block') {
+      const wantsBlock = this.inputManager.castDown && this.mana.current > 0
+      if (wantsBlock) {
+        this.blocking = true
+        this.mana.damage(((this.skill.manaDrainPerSec ?? 0) * delta) / 1000)
+        this.setTint(0x66aaff)
+      } else if (this.blocking) {
+        this.blocking = false
+        this.clearTint()
+      }
+    } else if (this.skill.type === 'heal') {
+      if (this.inputManager.justCast()) this.tryHeal()
+    }
+  }
+
+  private tryHeal(): void {
     const now = this.scene.time.now
-    if (now < this.nextCastAt) return
-    if (!this.mana.spend(CAST_MANA_COST)) return
-    this.nextCastAt = now + CAST_COOLDOWN
-
-    this.combat.spawnPlayerProjectile(this.x, this.y, this.facing.clone(), this.stats.rangedDamage)
+    if (now < this.nextSkillAt) return
+    if (this.health.current >= this.health.max) return
+    if (!this.mana.spend(this.skill.manaCost ?? 0)) return
+    this.nextSkillAt = now + (this.skill.cooldownMs ?? 0)
+    this.health.add(this.skill.healAmount ?? 0)
+    this.setTint(0x2ecc71)
+    this.scene.time.delayedCall(120, () => this.clearTint())
   }
+
+  // --- Daño y progresión ---
 
   takeDamage(amount: number): void {
     const now = this.scene.time.now
+    if (this.blocking) return // bloqueo total mientras dure el maná
     if (now < this.invulnUntil || this.isDead) return
     this.health.damage(applyDefense(amount, this.stats.defense))
     this.invulnUntil = now + INVULN_MS
@@ -112,7 +156,6 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     }
   }
 
-  /** Otorga XP y aplica level-ups. Emite 'levelup' en la escena por cada subida. */
   gainXp(amount: number): void {
     const gained = this.progression.addXp(amount)
     if (gained > 0) this.onLevelUp()
@@ -123,9 +166,24 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.health.max = this.stats.maxHp
     this.mana.max = this.stats.maxMana
     this.mana.regenPerSec = this.stats.manaRegen
-    // Recompensa: rellenar al subir de nivel
     this.health.current = this.health.max
     this.mana.current = this.mana.max
     this.scene.events.emit('levelup', this.progression.level)
+  }
+
+  // --- Equipo ---
+
+  equipWeapon(weapon: WeaponDef): void {
+    this.weapon = weapon
+    this.nextAttackAt = 0
+  }
+
+  equipSkill(skill: SkillDef): void {
+    if (this.blocking) {
+      this.blocking = false
+      this.clearTint()
+    }
+    this.skill = skill
+    this.nextSkillAt = 0
   }
 }
