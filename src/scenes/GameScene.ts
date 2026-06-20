@@ -182,11 +182,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       if (room.type === 'boss') this.spawnBoss()
       else this.spawnRoomEnemies()
     }
-    // Salida a la base: solo en la sala inicial (donde entraste). Sin cartel:
-    // el jugador debe conocer/recordar el mapa para volver a su base.
-    if (this.dungeon && room === this.dungeon.start) {
-      this.addPortal('base', W / 2, 44, 0xe67e22, '')
-    }
   }
 
   private clearRoom(): void {
