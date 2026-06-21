@@ -69,6 +69,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private farmProgress = 0
   private farmProgressBar?: Phaser.GameObjects.Rectangle
   private farmProgressBg?: Phaser.GameObjects.Rectangle
+  private lastPlayerHp = -1
 
   constructor() {
     super({ key: 'GameScene' })
@@ -85,6 +86,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.farmProgress = 0
     this.farmProgressBar = undefined
     this.farmProgressBg = undefined
+    this.lastPlayerHp = -1
   }
 
   create() {
@@ -231,8 +233,19 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     ]
     for (const [x, y, w, h] of rocks) this.addWall(x, y, w, h)
 
-    // Mobs neutrales — dan XP si se provocan, el jugador puede entrenar antes del dungeon
+    // Mobs — atacan al jugador; su presencia interrumpe el farmeo de terminales
     this.spawnOverworldMobs()
+
+    // Respawn de mobs cada 25s hasta mantener presión
+    this.time.addEvent({
+      delay: 25_000,
+      callback: () => {
+        if (this.mode !== 'overworld') return
+        const alive = this.enemies.getChildren().filter(e => !(e as Enemy).isDead).length
+        if (alive < 10) this.spawnOverworldMobs(14 - alive)
+      },
+      loop: true,
+    })
 
     if (GameState.lastOutcome === 'victory') {
       this.showCenterText('¡DUNGEON COMPLETADO! — botín a salvo', 0x2ecc71)
@@ -244,17 +257,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     GameState.lastOutcome = null
   }
 
-  private spawnOverworldMobs(): void {
+  private spawnOverworldMobs(count?: number): void {
     const def = ENEMIES['scavenger']
     const scale = this.difficultyScale()
-    const count = 6 + Math.min(4, GameState.depth)
-    // Evitar la zona de base (centro)
-    const safeDist = 200
+    const n = count ?? (18 + Math.min(8, GameState.depth * 2))
+    const safeDist = 180  // evitar zona de base
     const bx = OW_W / 2
     const by = OW_H / 2
     let spawned = 0
     let attempts = 0
-    while (spawned < count && attempts < count * 5) {
+    while (spawned < n && attempts < n * 6) {
       attempts++
       const x = Phaser.Math.Between(WALL + 30, OW_W - WALL - 30)
       const y = Phaser.Math.Between(WALL + 30, OW_H - WALL - 30)
@@ -522,7 +534,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private enterDungeon(): void {
     if (GameState.chips < DUNGEON_CHIP_COST) {
-      this.events.emit('toast', `Necesitás ${DUNGEON_CHIP_COST} ⬡ chips para entrar`)
+      // Cooldown de 1.5s para no spamear el toast cada frame
+      this.transitionLockUntil = this.time.now + 1500
+      this.events.emit('toast', `⬡ ${GameState.chips}/${DUNGEON_CHIP_COST} chips — farmeá en terminales`)
       return
     }
     GameState.chips -= DUNGEON_CHIP_COST
@@ -577,7 +591,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
     // Rango según tipo de arma equipada
     const weapon = WEAPONS[this.player.equippedItem.key]
-    const range = weapon?.element ? 180 : 90  // ranged: 180px, melee: 90px
+    // Melee: activa cuando el enemigo está dentro del alcance real del arma + radio del cuerpo
+    // Ranged: activa a distancia media
+    const range = weapon?.element ? 160 : (weapon?.range ?? 14) + 36
     if (dist <= range) this.player.triggerAttack()
   }
 
@@ -605,6 +621,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private updateTerminals(delta: number): void {
+    // Detectar daño recibido: interrumpe el farmeo
+    const hp = this.player.health.current
+    if (this.lastPlayerHp >= 0 && hp < this.lastPlayerHp && this.farmProgress > 0) {
+      this.farmProgress = 0
+      if (this.farmProgressBar) this.farmProgressBar.width = 0
+      this.events.emit('toast', '⚠ Farmeo interrumpido')
+    }
+    this.lastPlayerHp = hp
+
     let nearIdx = -1
     for (let i = 0; i < this.terminalPositions.length; i++) {
       const t = this.terminalPositions[i]
