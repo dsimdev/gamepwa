@@ -33,11 +33,13 @@ const DUNGEON_CHIP_COST = 5
 const TERMINAL_FARM_MS = 3000
 const TERMINAL_RANGE = 52
 const BASE_EXCL_R = 110
-const ELITE_CHANCE = 0.28   // 28% de cada mob en dungeon es élite
+const ELITE_CHANCE = 0.28
+const SKILL_CD_MS  = 5_000   // 5s cooldown fijo para todos los skills
 
-type Mode = 'overworld' | 'run'
+type Mode       = 'overworld' | 'run'
 type PortalKind = 'dungeon' | 'overworld' | 'stash'
-type EliteMod = 'armored' | 'swift' | 'explosive'
+type EliteMod   = 'armored' | 'swift' | 'explosive'
+type SkillType  = 'attack' | 'defense' | 'special'
 const ELITE_MODS: EliteMod[] = ['armored', 'swift', 'explosive']
 
 export class GameScene extends Phaser.Scene implements CombatContext, EnemyContext {
@@ -91,6 +93,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // Boss aura
   private bossAuraTimer?: Phaser.Time.TimerEvent
 
+  // Skills
+  private skillCdUntil: Record<SkillType, number> = { attack: 0, defense: 0, special: 0 }
+  private lifeStealUntil = 0
+  private shieldRing?: Phaser.GameObjects.Graphics
+
   constructor() {
     super({ key: 'GameScene' })
   }
@@ -110,6 +117,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.wasInBase = false
     this.traps = []
     this.bossAuraTimer = undefined
+    this.skillCdUntil = { attack: 0, defense: 0, special: 0 }
+    this.lifeStealUntil = 0
+    this.shieldRing = undefined
   }
 
   create() {
@@ -172,21 +182,27 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.events.emit('toast', `${name} se rompió`)
     })
 
-    // Skills activas: el jugador toca un botón de elemento en UIScene
+    // Skills: botones ATK / DEF / ESP en UIScene
     this.events.off('useSkill')
-    this.events.on('useSkill', (el: ElementType) => {
-      if (this.player.inBase) return  // zona neutral
-      if ((GameState.ammo[el] ?? 0) <= 0) {
-        this.events.emit('toast', `Sin ${ELEMENT_NAMES[el]}`)
+    this.events.on('useSkill', (type: SkillType) => {
+      if (this.player.inBase || this.player.isDashing) return
+      const now = this.time.now
+      if (now < this.skillCdUntil[type]) {
+        this.events.emit('toast', 'Skill en cooldown')
         return
       }
-      const nearest = this.findNearestEnemy()
-      const dir = nearest
-        ? new Phaser.Math.Vector2(nearest.enemy.x - this.player.x, nearest.enemy.y - this.player.y).normalize()
-        : this.player.facing.clone()
-      const dmg = this.player.stats.rangedDamage + 2
-      this.spawnPlayerProjectile(this.player.x, this.player.y, dir, dmg, el)
+      const el = this.player.weapon.element as ElementType | undefined
+      if (!el) { this.events.emit('toast', 'Equipá un arma elemental'); return }
+      const MANA_COST = 3
+      if (!this.player.mana.spend(MANA_COST)) {
+        this.events.emit('toast', 'Sin maná')
+        return
+      }
+      this.skillCdUntil[type] = now + SKILL_CD_MS
+      this.executeSkill(type, el)
     })
+
+    this.shieldRing = this.add.graphics().setDepth(500)
 
     this.physics.add.collider(this.player, this.walls)
     this.physics.add.collider(this.player, this.doorBlocks)
@@ -311,7 +327,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private spawnOverworldSentinel(): void {
     const scale = this.difficultyScale()
-    const sentinel = new Enemy(this, OW_W * 0.18, OW_H * 0.22, ENEMIES['miniboss'], this, scale)
+    // Spawnea lejos de la base (cuadrante NW o SE del mapa)
+    const spawnZones: [number, number][] = [
+      [OW_W * 0.15, OW_H * 0.18],
+      [OW_W * 0.80, OW_H * 0.78],
+      [OW_W * 0.78, OW_H * 0.18],
+      [OW_W * 0.15, OW_H * 0.78],
+    ]
+    const [sx, sy] = Phaser.Utils.Array.GetRandom(spawnZones)
+    const sentinel = new Enemy(this, sx, sy, ENEMIES['miniboss'], this, scale)
     sentinel.onDeath = e => {
       this.player.gainXp(e.xpReward * 2)
       this.maybeDropLoot(e.x, e.y)
@@ -441,6 +465,205 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       },
       onComplete: () => g.destroy(),
     })
+  }
+
+  // ─── Skills ────────────────────────────────────────────────────────────────
+
+  private executeSkill(type: SkillType, el: ElementType): void {
+    if (el === 'plasma') {
+      if (type === 'attack')  this.skillPlasmaAura()
+      if (type === 'defense') this.skillPlasmaShield()
+      if (type === 'special') this.skillPlasmaDash()
+    } else if (el === 'electro') {
+      if (type === 'attack')  this.skillElectroWave()
+      if (type === 'defense') this.skillElectroLifesteal()
+      if (type === 'special') this.skillElectroTeleport()
+    } else if (el === 'fire') {
+      if (type === 'attack')  this.skillFireBurst()
+      if (type === 'defense') this.skillFireWall()
+      if (type === 'special') this.skillFireDash()
+    }
+  }
+
+  // ─── Plasma ─────────────────────────────────────────────────────────────────
+
+  private skillPlasmaAura(): void {
+    const RADIUS = 74, DMG = 3
+    this.showAoeEffect(this.player.x, this.player.y, RADIUS, ELEMENT_COLORS.plasma)
+    for (const c of this.enemies.getChildren()) {
+      const e = c as Enemy
+      if (e.isDead) continue
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y) <= RADIUS) {
+        e.takeDamage(DMG, new Phaser.Math.Vector2(this.player.x, this.player.y), 'plasma')
+      }
+    }
+    this.events.emit('toast', 'Aura plasma')
+  }
+
+  private skillPlasmaShield(): void {
+    const amount = Math.max(2, Math.floor(this.player.health.current * 0.45))
+    this.player.shieldHp = amount
+    this.events.emit('toast', `Escudo ${amount} HP`)
+  }
+
+  private skillPlasmaDash(): void {
+    const DIST = 220, DMG = 3
+    const tx = Phaser.Math.Clamp(this.player.x + this.player.facing.x * DIST, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
+    const ty = Phaser.Math.Clamp(this.player.y + this.player.facing.y * DIST, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
+    const ox = this.player.x, oy = this.player.y
+    this.player.isDashing = true
+    this.player.setTint(ELEMENT_COLORS.plasma)
+    this.tweens.add({
+      targets: this.player, x: tx, y: ty, duration: 200, ease: 'Cubic.Out',
+      onUpdate: () => {
+        for (const c of this.enemies.getChildren()) {
+          const e = c as Enemy
+          if (e.isDead) continue
+          if (Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y) < 34) {
+            e.takeDamage(DMG, new Phaser.Math.Vector2(ox, oy), 'plasma')
+          }
+        }
+      },
+      onComplete: () => { this.player.isDashing = false; this.player.clearTint() },
+    })
+    this.events.emit('toast', 'Dash plasma')
+  }
+
+  // ─── Electro ────────────────────────────────────────────────────────────────
+
+  private skillElectroWave(): void {
+    const maxR = 200, DMG = 3
+    const g = this.add.graphics()
+    const state = { r: 0 }
+    const px = this.player.x, py = this.player.y
+    const hit = new Set<Enemy>()
+    this.tweens.add({
+      targets: state, r: maxR, duration: 700, ease: 'Cubic.Out',
+      onUpdate: () => {
+        g.clear()
+        g.lineStyle(6, ELEMENT_COLORS.electro, 0.8 * (1 - state.r / maxR))
+        g.strokeCircle(px, py, state.r)
+        for (const c of this.enemies.getChildren()) {
+          const e = c as Enemy
+          if (e.isDead || hit.has(e)) continue
+          const d = Phaser.Math.Distance.Between(px, py, e.x, e.y)
+          if (Math.abs(d - state.r) < 22) { e.takeDamage(DMG, new Phaser.Math.Vector2(px, py), 'electro'); hit.add(e) }
+        }
+      },
+      onComplete: () => g.destroy(),
+    })
+    this.events.emit('toast', 'Onda electro')
+  }
+
+  private skillElectroLifesteal(): void {
+    const DURATION = 5_000
+    this.lifeStealUntil = this.time.now + DURATION
+    this.player.setTint(ELEMENT_COLORS.electro)
+    this.time.delayedCall(DURATION, () => {
+      if (this.time.now >= this.lifeStealUntil) this.player.clearTint()
+    })
+    this.events.emit('toast', 'Lifesteal 5s')
+  }
+
+  private skillElectroTeleport(): void {
+    const DIST = 170, AOE_R = 58, DMG = 2
+    this.showAoeEffect(this.player.x, this.player.y, 28, ELEMENT_COLORS.electro)
+    const tx = Phaser.Math.Clamp(this.player.x + this.player.facing.x * DIST, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
+    const ty = Phaser.Math.Clamp(this.player.y + this.player.facing.y * DIST, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
+    this.player.setPosition(tx, ty)
+    this.showAoeEffect(tx, ty, AOE_R, ELEMENT_COLORS.electro)
+    for (const c of this.enemies.getChildren()) {
+      const e = c as Enemy
+      if (e.isDead) continue
+      if (Phaser.Math.Distance.Between(tx, ty, e.x, e.y) <= AOE_R) {
+        e.takeDamage(DMG, new Phaser.Math.Vector2(tx, ty), 'electro')
+      }
+    }
+    this.events.emit('toast', 'Teleporte')
+  }
+
+  // ─── Fire ────────────────────────────────────────────────────────────────────
+
+  private skillFireBurst(): void {
+    const DMG = (this.player.stats.rangedDamage + this.player.weapon.damage) + 2
+    const angles = [0, -0.22, 0.22]
+    for (const a of angles) {
+      const dir = this.player.facing.clone().rotate(a)
+      this.spawnPlayerProjectile(this.player.x, this.player.y, dir, DMG, 'fire')
+    }
+    this.events.emit('toast', 'Burst fuego')
+  }
+
+  private skillFireWall(): void {
+    const DURATION = 4_000, DEF_BONUS = 4, TICK_DMG = 1
+    const px = this.player.x, py = this.player.y
+    const RADIUS = 50
+    const offsets: [number, number][] = [[0, -RADIUS], [0, RADIUS], [-RADIUS, 0], [RADIUS, 0]]
+    const rects: Phaser.GameObjects.Rectangle[] = offsets.map(([ox, oy]) => {
+      const r = this.add.rectangle(px + ox, py + oy, 22, 22, ELEMENT_COLORS.fire, 0.8)
+      this.tweens.add({ targets: r, alpha: 0.3, duration: 350, yoyo: true, repeat: -1 })
+      return r
+    })
+
+    this.player.tempDefBonus = DEF_BONUS
+    const wallTimer = this.time.addEvent({
+      delay: 500, loop: true,
+      callback: () => {
+        for (const r of rects) {
+          if (!r.active) continue
+          for (const c of this.enemies.getChildren()) {
+            const e = c as Enemy
+            if (e.isDead) continue
+            if (Phaser.Math.Distance.Between(r.x, r.y, e.x, e.y) < 24) {
+              e.takeDamage(TICK_DMG, new Phaser.Math.Vector2(r.x, r.y), 'fire')
+            }
+          }
+        }
+      },
+    })
+
+    this.time.delayedCall(DURATION, () => {
+      wallTimer.destroy()
+      rects.forEach(r => r.destroy())
+      this.player.tempDefBonus = 0
+    })
+    this.events.emit('toast', `Pared de fuego +${DEF_BONUS}DEF`)
+  }
+
+  private skillFireDash(): void {
+    const DIST = 190, DMG = this.player.stats.rangedDamage + this.player.weapon.damage
+    const result = this.findNearestEnemy()
+    const target = result?.enemy
+
+    let tx: number, ty: number
+    if (target) {
+      const dir = new Phaser.Math.Vector2(target.x - this.player.x, target.y - this.player.y).normalize()
+      tx = Phaser.Math.Clamp(target.x - dir.x * 40, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
+      ty = Phaser.Math.Clamp(target.y - dir.y * 40, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
+    } else {
+      tx = Phaser.Math.Clamp(this.player.x + this.player.facing.x * DIST, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
+      ty = Phaser.Math.Clamp(this.player.y + this.player.facing.y * DIST, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
+    }
+
+    this.player.isDashing = true
+    this.player.setTint(ELEMENT_COLORS.fire)
+    this.tweens.add({
+      targets: this.player, x: tx, y: ty, duration: 200, ease: 'Cubic.Out',
+      onComplete: () => {
+        this.player.isDashing = false
+        this.player.clearTint()
+        if (!target || target.isDead) return
+        const dir = new Phaser.Math.Vector2(target.x - this.player.x, target.y - this.player.y).normalize()
+        for (let i = 0; i < 3; i++) {
+          this.time.delayedCall(i * 110, () => {
+            if (!target.isDead) {
+              this.spawnPlayerProjectile(this.player.x, this.player.y, dir.clone(), DMG, 'fire')
+            }
+          })
+        }
+      },
+    })
+    this.events.emit('toast', 'Dash + ráfaga')
   }
 
   private showCenterText(text: string, color: number): void {
@@ -1083,13 +1306,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void {
+    let didHit = false
     this.enemies.getChildren().forEach(child => {
       const enemy = child as Enemy
       if (enemy.isDead) return
       if (Phaser.Geom.Intersects.RectangleToRectangle(rect, enemy.getBounds())) {
         enemy.takeDamage(damage, from)
+        didHit = true
       }
     })
+    if (didHit && this.time.now < this.lifeStealUntil) this.player.health.add(1)
   }
 
   spawnEnemyProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number): void {
@@ -1154,6 +1380,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       }
     }
 
+    // Lifesteal (skill electro def)
+    if (this.time.now < this.lifeStealUntil) this.player.health.add(1)
+
     p.kill()
   }
 
@@ -1214,6 +1443,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (this.mode === 'overworld') {
       this.enforceBaseExclusion()
       this.updateTerminals(delta)
+    }
+
+    // Escudo de plasma — anillo visual que sigue al jugador
+    if (this.shieldRing) {
+      this.shieldRing.clear()
+      if (this.player.shieldHp > 0) {
+        this.shieldRing.lineStyle(3, 0xaa44ff, 0.75)
+        this.shieldRing.strokeCircle(this.player.x, this.player.y, 36)
+      }
     }
 
     // Auto-ataque: bloqueado dentro de la base (zona neutral)
