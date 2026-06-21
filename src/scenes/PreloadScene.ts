@@ -12,9 +12,10 @@ export class PreloadScene extends Phaser.Scene {
     // this.load.spritesheet('player', 'assets/sprites/player.png', { frameWidth: 16, frameHeight: 16 })
   }
 
-  async create() {
-    // Cargar progreso guardado (nivel/xp/stash) antes de entrar a la base
-    await GameState.load()
-    this.scene.start('GameScene', { mode: 'overworld' })
+  create() {
+    // Cargar progreso guardado — usamos .then()/.catch() porque Phaser no awaita create()
+    GameState.load()
+      .catch(err => console.warn('Save load failed, starting fresh:', err))
+      .then(() => this.scene.start('GameScene', { mode: 'overworld' }))
   }
 }

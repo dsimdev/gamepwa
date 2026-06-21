@@ -23,6 +23,10 @@
     </style>
   </head>
   <body>
+    <script>
+      // Fuerza DPR=1 ANTES de que Phaser lo lea — evita canvas 3x en phones de alta densidad
+      try { Object.defineProperty(window, 'devicePixelRatio', { get: () => 1, configurable: true }) } catch(e) {}
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
