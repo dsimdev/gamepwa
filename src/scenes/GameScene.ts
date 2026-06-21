@@ -32,6 +32,7 @@ const OW_H = 1280
 const DUNGEON_CHIP_COST = 5
 const TERMINAL_FARM_MS = 3000
 const TERMINAL_RANGE = 52
+const BASE_EXCL_R = 110  // radio de exclusión de la base (>= inBase radius 90)
 
 type Mode = 'overworld' | 'run'
 type PortalKind = 'dungeon' | 'overworld' | 'stash'
@@ -157,6 +158,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     // Skills activas: el jugador toca un botón de elemento en UIScene
     this.events.off('useSkill')
     this.events.on('useSkill', (el: ElementType) => {
+      if (this.player.inBase) return  // zona neutral
       if ((GameState.ammo[el] ?? 0) <= 0) {
         this.events.emit('toast', `Sin ${ELEMENT_NAMES[el]}`)
         return
@@ -583,6 +585,32 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
   }
 
+  // --- Zona segura de base ---
+
+  private enforceBaseExclusion(): void {
+    const bx = OW_W / 2
+    const by = OW_H / 2
+    // Empujar mobs fuera del radio de exclusión
+    for (const c of this.enemies.getChildren()) {
+      const e = c as Enemy
+      if (e.isDead) continue
+      const dist = Phaser.Math.Distance.Between(e.x, e.y, bx, by)
+      if (dist < BASE_EXCL_R) {
+        const dir = new Phaser.Math.Vector2(e.x - bx, e.y - by)
+        if (dir.lengthSq() < 0.01) dir.set(1, 0)
+        dir.normalize()
+        e.setPosition(bx + dir.x * BASE_EXCL_R, by + dir.y * BASE_EXCL_R)
+        e.setVelocity(dir.x * 60, dir.y * 60)
+      }
+    }
+    // Destruir proyectiles enemigos que entren a la base
+    for (const c of this.enemyProjectiles.getChildren()) {
+      const p = c as import('../combat/Projectile').Projectile
+      if (!p.active) continue
+      if (Phaser.Math.Distance.Between(p.x, p.y, bx, by) < BASE_EXCL_R) p.kill()
+    }
+  }
+
   // --- Auto-ataque ---
 
   private handleAutoAttack(): void {
@@ -984,12 +1012,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.player.update(time, delta)
     this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
 
-    // Auto-ataque por proximidad (orienta al jugador y dispara si en rango)
-    this.handleAutoAttack()
-
+    // Zona segura de base (overworld): mobs y proyectiles no pueden entrar
     if (this.mode === 'overworld') {
+      this.enforceBaseExclusion()
       this.updateTerminals(delta)
     }
+
+    // Auto-ataque: bloqueado dentro de la base (zona neutral)
+    if (!this.player.inBase) this.handleAutoAttack()
 
     if (this.mode === 'run') {
       this.updateBossBar()
