@@ -7,6 +7,7 @@ import { computeStats } from '../data/playerStats'
 import { WEAPONS, STARTING_WEAPON } from '../data/weapons'
 import { makeItem, isUnbreakable, KNIFE_KEY } from '../items/types'
 import { GameState } from '../systems/GameState'
+
 import type { StatBlock } from '../components/Stats'
 import type { WeaponDef } from '../data/weapons'
 import type { ItemInstance } from '../items/types'
@@ -35,6 +36,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
   facing = new Phaser.Math.Vector2(0, 1)
   inBase = false
+  inSafeZone = false   // base o cualquier edificio — bloquea combate
   isDashing = false     // invulnerable y sin input durante el dash
   shieldHp = 0          // escudo de plasma — absorbe daño antes que la vida
   tempDefBonus = 0      // bonus temporal de DEF (pared de fuego)
@@ -77,7 +79,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   update(_time: number, delta: number): void {
-    const baseBonus = this.inBase ? 2.0 : 1.0
+    const baseBonus = this.inBase ? 2.0 + GameState.baseRegenBonus : 1.0
     const regenMult = this.inCombat ? COMBAT_REGEN_MULT : baseBonus
     this.health.regenPerSec = this.stats.hpRegen * regenMult
     this.mana.regenPerSec = this.stats.manaRegen * regenMult

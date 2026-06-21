@@ -29,6 +29,40 @@ class GameStateClass {
   statResetCount = 0
   respawnCount = 0
 
+  hackUpgrades = {
+    terminalCharges: 0,   // 0-2: +1 carga por nivel (base 3)
+    terminalYield:   0,   // 0-3: +1 chip por farm
+    farmSpeed:       0,   // 0-3: -600ms por nivel (min 1200ms)
+    dungeonDiscount: 0,   // 0-4: -1 chip entrada (min 1)
+    baseRegen:       0,   // 0-3: +0.5x regen en base por nivel
+  }
+
+  static readonly HACK_MAX: Record<string, number> = {
+    terminalCharges: 2,
+    terminalYield:   3,
+    farmSpeed:       3,
+    dungeonDiscount: 4,
+    baseRegen:       3,
+  }
+
+  get dungeonCost(): number { return Math.max(1, 5 - this.hackUpgrades.dungeonDiscount) }
+  get baseRegenBonus(): number { return this.hackUpgrades.baseRegen * 0.5 }
+
+  hackUpgradeCost(key: keyof typeof this.hackUpgrades): number {
+    return Math.round(10 * Math.pow(2, this.hackUpgrades[key]))
+  }
+
+  buyHackUpgrade(key: keyof typeof this.hackUpgrades): boolean {
+    const max = GameStateClass.HACK_MAX[key] ?? 0
+    if (this.hackUpgrades[key] >= max) return false
+    const cost = this.hackUpgradeCost(key)
+    if (this.chips < cost) return false
+    this.chips -= cost
+    this.hackUpgrades[key]++
+    this.persist()
+    return true
+  }
+
   get statResetCost(): number {
     return Math.round(20 * Math.pow(1.25, this.statResetCount))
   }
@@ -62,6 +96,7 @@ class GameStateClass {
     this.statLevels = (data.statLevels ?? {}) as Partial<Record<StatKey, number>>
     this.statResetCount = data.statResetCount ?? 0
     this.respawnCount = data.respawnCount ?? 0
+    if (data.hackUpgrades) this.hackUpgrades = { ...this.hackUpgrades, ...data.hackUpgrades }
     // Reconciliar nivel con puntos acumulados (evita save corrupto con level=1 + statPoints>0)
     const totalEarned = this.statPoints + Object.values(this.statLevels).reduce((s, v) => s + (v ?? 0), 0)
     if (this.level < 1 + totalEarned) this.level = 1 + totalEarned
@@ -82,6 +117,7 @@ class GameStateClass {
       statLevels: { ...this.statLevels },
       statResetCount: this.statResetCount,
       respawnCount: this.respawnCount,
+      hackUpgrades: { ...this.hackUpgrades },
     }
     void this.store.save(data)
   }
@@ -183,6 +219,7 @@ class GameStateClass {
     this.statLevels = {}
     this.statResetCount = 0
     this.respawnCount = 0
+    this.hackUpgrades = { terminalCharges: 0, terminalYield: 0, farmSpeed: 0, dungeonDiscount: 0, baseRegen: 0 }
     this.lastOutcome = null
   }
 

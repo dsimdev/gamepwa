@@ -12,6 +12,7 @@ import type { ElementType } from '../data/elements'
 import { STAT_DEFS, STAT_KEYS } from '../data/playerStats'
 import type { ItemInstance } from '../items/types'
 import type { StatKey } from '../data/playerStats'
+import type { BuildingKind } from '../scenes/GameScene'
 
 const HEART_SIZE = 16
 const HEART_GAP  = 20
@@ -38,7 +39,7 @@ export class UIScene extends Phaser.Scene {
 
   private panel?: Phaser.GameObjects.Container
   private backdrop?: Phaser.GameObjects.Rectangle
-  private panelKind?: 'bag' | 'stash' | 'stats'
+  private panelKind?: 'bag' | 'stash' | 'stats' | BuildingKind
   private navLabels: Partial<Record<string, Phaser.GameObjects.Text>> = {}
 
   // Altura del panel y posición Y cuando está abierto
@@ -122,7 +123,7 @@ export class UIScene extends Phaser.Scene {
     this.openPanel(kind)
   }
 
-  private openPanel(kind: 'bag' | 'stash' | 'stats', animate = true) {
+  private openPanel(kind: 'bag' | 'stash' | 'stats' | BuildingKind, animate = true) {
     const { width, height } = this.scale
     this.panelKind = kind
 
@@ -134,7 +135,8 @@ export class UIScene extends Phaser.Scene {
 
     // Construir contenido
     if (kind === 'stats') this.buildStatsPanel()
-    else                  this.buildInventoryPanel()
+    else if (kind === 'bag' || kind === 'stash') this.buildInventoryPanel()
+    else this.buildBuildingPanel(kind)
 
     // Animación desde abajo
     if (this.panel) {
@@ -291,6 +293,231 @@ export class UIScene extends Phaser.Scene {
     this.panel = this.add.container(0, this.panelOpenY, children).setDepth(5000)
   }
 
+  // ─── Paneles de edificios ────────────────────────────────────────────────────
+
+  private buildBuildingPanel(kind: BuildingKind) {
+    this.panel?.destroy()
+    if      (kind === 'health') this.buildHealthPanel()
+    else if (kind === 'market') this.buildMarketPanel()
+    else if (kind === 'repair') this.buildRepairPanel()
+    else if (kind === 'hack')   this.buildHackPanel()
+  }
+
+  private buildHealthPanel() {
+    const { width } = this.scale
+    const pH = this.panelH
+    const depth = GameState.depth
+    const scale = 1 + depth * 0.4
+
+    const cost50  = Math.round(8 * scale)
+    const costFull = Math.round(18 * scale)
+    const costMana = Math.round(5 * (1 + depth * 0.3))
+
+    const hp     = this.player.health
+    const mana   = this.player.mana
+    const coins  = GameState.coins
+
+    const bg  = this.add.rectangle(0, 0, width, pH, 0x0a0a18, 0.97).setOrigin(0, 0)
+    const hdl = this.makeHandle(width)
+    const hd  = addLabel(this, width / 2, 22, 'CENTRO DE SALUD', 17, '#2ecc71').setOrigin(0.5, 0)
+    addLabel(this, width / 2, 44, `HP ${Math.round(hp.current)}/${hp.max}  ·  Maná ${Math.round(mana.current)}/${mana.max}`, 12, CSS.dim).setOrigin(0.5, 0)
+    addLabel(this, 20, 44, `◆ ${coins}`, 12, '#e74c3c').setOrigin(0, 0)
+
+    const makeBtn = (y: number, label: string, cost: number, enabled: boolean, action: () => void) => {
+      const col = enabled ? CSS.light : CSS.dim
+      const costCol = enabled ? CSS.yellow : CSS.dim
+      const row = this.add.rectangle(width / 2, y + 20, width - 32, 40, 0x12203a, enabled ? 0.8 : 0.3)
+        .setOrigin(0.5, 0).setStrokeStyle(1, enabled ? 0x2ecc71 : 0x223322)
+      const lbl = addLabel(this, 28, y + 22, label, 14, col).setOrigin(0, 0)
+      const cst = addLabel(this, width - 28, y + 22, `${cost} ◆`, 14, costCol).setOrigin(1, 0)
+      if (enabled) {
+        row.setInteractive({ useHandCursor: true })
+        row.on(Phaser.Input.Events.POINTER_DOWN, () => { action(); this.refreshPanel() })
+      }
+      return [row, lbl, cst]
+    }
+
+    const can50   = coins >= cost50  && hp.current < hp.max
+    const canFull = coins >= costFull && hp.current < hp.max
+    const canMana = coins >= costMana && mana.current < mana.max
+
+    const children: Phaser.GameObjects.GameObject[] = [bg, hdl, hd]
+    children.push(...makeBtn(70,  `Curar 50% HP`,   cost50,   can50,   () => { GameState.coins -= cost50;   GameState.persist(); this.player.health.add(Math.floor(hp.max * 0.5)) }))
+    children.push(...makeBtn(120, `Curar Full HP`,  costFull, canFull, () => { GameState.coins -= costFull; GameState.persist(); this.player.health.add(hp.max) }))
+    children.push(...makeBtn(170, `Restaurar Maná`, costMana, canMana, () => { GameState.coins -= costMana; GameState.persist(); this.player.mana.add(mana.max) }))
+
+    this.panel = this.add.container(0, this.panelOpenY, children).setDepth(5000)
+  }
+
+  private buildMarketPanel() {
+    const { width } = this.scale
+    const pH = this.panelH
+    const scale = 1 + GameState.depth * 0.3
+    const prices: Record<ElementType, number> = {
+      fire:    Math.round(10 * scale),
+      electro: Math.round(12 * scale),
+      plasma:  Math.round(15 * scale),
+    }
+    const coins = GameState.coins
+
+    const bg  = this.add.rectangle(0, 0, width, pH, 0x0a0a18, 0.97).setOrigin(0, 0)
+    const hdl = this.makeHandle(width)
+    const hd  = addLabel(this, width / 2, 22, 'MARKET', 17, '#f1c40f').setOrigin(0.5, 0)
+    addLabel(this, 20, 44, `◆ ${coins} coins`, 12, '#e74c3c').setOrigin(0, 0)
+    addLabel(this, width / 2, 62, '— COMPRAR ammo ×10 —', 11, CSS.dim).setOrigin(0.5, 0)
+
+    const children: Phaser.GameObjects.GameObject[] = [bg, hdl, hd]
+
+    const els: ElementType[] = ['fire', 'electro', 'plasma'];
+    els.forEach((el, i) => {
+      const cost = prices[el]
+      const can  = coins >= cost
+      const y    = 78 + i * 44
+      const row  = this.add.rectangle(width / 2, y, width - 32, 36, 0x12203a, can ? 0.8 : 0.3)
+        .setOrigin(0.5, 0).setStrokeStyle(1, can ? 0xf1c40f : 0x332211)
+      const lbl = addLabel(this, 28, y + 4, `${ELEMENT_NAMES[el]} ×10`, 13, can ? ELEMENT_CSS[el] : CSS.dim).setOrigin(0, 0)
+      const cst = addLabel(this, width - 28, y + 4, `${cost} ◆`, 13, can ? CSS.yellow : CSS.dim).setOrigin(1, 0)
+      if (can) {
+        row.setInteractive({ useHandCursor: true })
+        row.on(Phaser.Input.Events.POINTER_DOWN, () => {
+          GameState.coins -= prices[el]; GameState.addAmmo(el, 10)
+          this.refreshPanel()
+        })
+      }
+      children.push(row, lbl, cst)
+    })
+
+    // Vender items del bag
+    const bag = GameState.bag
+    if (bag.length > 0) {
+      addLabel(this, width / 2, 224, '— VENDER —', 11, CSS.dim).setOrigin(0.5, 0)
+      children.push(addLabel(this, width / 2, 224, '— VENDER —', 11, CSS.dim).setOrigin(0.5, 0))
+      bag.forEach((item, i) => {
+        const def   = WEAPONS[item.key]
+        if (!def) return
+        const dur   = def.maxDurability > 0 ? item.durability / def.maxDurability : 1
+        const price = Math.max(1, Math.round((def.element ? 8 : 3) * dur))
+        const y     = 240 + i * 32
+        const lbl   = addLabel(this, 28, y, `• ${def.name}`, 13, CSS.light).setOrigin(0, 0)
+        const btn   = addLabel(this, width - 28, y, `${price} ◆`, 13, CSS.yellow)
+          .setOrigin(1, 0).setInteractive({ useHandCursor: true })
+          .on(Phaser.Input.Events.POINTER_DOWN, () => {
+            GameState.bag.splice(i, 1)
+            GameState.addCoins(price)
+            this.refreshPanel()
+          })
+        children.push(lbl, btn)
+      })
+    }
+
+    this.panel = this.add.container(0, this.panelOpenY, children).setDepth(5000)
+  }
+
+  private buildRepairPanel() {
+    const { width } = this.scale
+    const pH = this.panelH
+    const item    = this.player.equippedItem
+    const def     = WEAPONS[item.key]
+    const coins   = GameState.coins
+
+    const bg  = this.add.rectangle(0, 0, width, pH, 0x0a0a18, 0.97).setOrigin(0, 0)
+    const hdl = this.makeHandle(width)
+    const hd  = addLabel(this, width / 2, 22, 'TALLER', 17, '#e67e22').setOrigin(0.5, 0)
+    addLabel(this, 20, 44, `◆ ${coins} coins`, 12, '#e74c3c').setOrigin(0, 0)
+
+    const children: Phaser.GameObjects.GameObject[] = [bg, hdl, hd]
+
+    if (!def || def.maxDurability <= 0) {
+      children.push(addLabel(this, width / 2, 100, 'No se puede reparar.', 14, CSS.dim).setOrigin(0.5, 0))
+    } else {
+      const missing = def.maxDurability - item.durability
+      const cost    = Math.max(1, Math.round(missing * 3 * (1 + GameState.depth * 0.25)))
+      const can     = missing > 0 && coins >= cost
+      const durColor = item.durability / def.maxDurability > 0.5 ? CSS.green : (item.durability > 1 ? CSS.yellow : CSS.red)
+
+      children.push(
+        addLabel(this, width / 2, 70, def.name, 15, CSS.light).setOrigin(0.5, 0),
+        addLabel(this, width / 2, 94, `Durabilidad: ${item.durability}/${def.maxDurability}`, 13, durColor).setOrigin(0.5, 0),
+      )
+
+      if (missing === 0) {
+        children.push(addLabel(this, width / 2, 130, 'Ya está en perfecto estado.', 13, CSS.dim).setOrigin(0.5, 0))
+      } else {
+        const row = this.add.rectangle(width / 2, 130, width - 32, 42, 0x12203a, can ? 0.8 : 0.3)
+          .setOrigin(0.5, 0).setStrokeStyle(1, can ? 0xe67e22 : 0x332211)
+        const lbl = addLabel(this, 28, 142, 'Reparar al máximo', 14, can ? CSS.light : CSS.dim).setOrigin(0, 0)
+        const cst = addLabel(this, width - 28, 142, `${cost} ◆`, 14, can ? CSS.yellow : CSS.dim).setOrigin(1, 0)
+        if (can) {
+          row.setInteractive({ useHandCursor: true })
+          row.on(Phaser.Input.Events.POINTER_DOWN, () => {
+            GameState.coins -= cost; GameState.persist()
+            item.durability = def.maxDurability
+            this.showToast(`${def.name} reparada`)
+            this.refreshPanel()
+          })
+        }
+        children.push(row, lbl, cst)
+        if (!can && coins < cost) children.push(addLabel(this, width / 2, 182, `Faltan ${cost - coins} ◆`, 12, CSS.dim).setOrigin(0.5, 0))
+      }
+    }
+
+    this.panel = this.add.container(0, this.panelOpenY, children).setDepth(5000)
+  }
+
+  private buildHackPanel() {
+    const { width } = this.scale
+    const pH = this.panelH
+
+    type HKey = keyof typeof GameState.hackUpgrades
+    const defs: Array<{ key: HKey; label: string; desc: string; max: number }> = [
+      { key: 'terminalCharges', label: 'Capacidad Terminal', desc: '+1 carga/terminal',  max: 2 },
+      { key: 'terminalYield',   label: 'Rendimiento Datos',  desc: '+1 chip/farm',       max: 3 },
+      { key: 'farmSpeed',       label: 'Velocidad Hackeo',   desc: '-600ms/farm',         max: 3 },
+      { key: 'dungeonDiscount', label: 'Acceso Dungeon',     desc: '-1 ⬡ entrada',       max: 4 },
+      { key: 'baseRegen',       label: 'Nanobots Base',      desc: '+0.5x regen base',   max: 3 },
+    ]
+
+    const bg  = this.add.rectangle(0, 0, width, pH, 0x0a0a18, 0.97).setOrigin(0, 0)
+    const hdl = this.makeHandle(width)
+    const hd  = addLabel(this, width / 2, 22, 'CENTRO DE HACKEO', 17, CSS.cyan).setOrigin(0.5, 0)
+    addLabel(this, 20, 44, `⬡ ${GameState.chips} chips`, 13, CSS.cyan).setOrigin(0, 0)
+
+    const children: Phaser.GameObjects.GameObject[] = [bg, hdl, hd]
+
+    defs.forEach(({ key, label, desc, max }, i) => {
+      const cur  = GameState.hackUpgrades[key]
+      const full = cur >= max
+      const cost = full ? 0 : GameState.hackUpgradeCost(key)
+      const can  = !full && GameState.chips >= cost
+      const y    = 62 + i * 56
+
+      children.push(
+        addLabel(this, 20, y, label, 13, CSS.light).setOrigin(0, 0),
+        addLabel(this, 20, y + 18, desc, 11, CSS.dim).setOrigin(0, 0),
+        addLabel(this, width / 2, y + 6, `Lv ${cur}/${max}`, 12, full ? CSS.yellow : CSS.dim).setOrigin(0.5, 0),
+      )
+
+      if (!full) {
+        const btn = addLabel(this, width - 20, y + 6, `${cost} ⬡  [+]`, 13, can ? CSS.cyan : CSS.dim)
+          .setOrigin(1, 0)
+        if (can) {
+          btn.setInteractive({ useHandCursor: true })
+          btn.on(Phaser.Input.Events.POINTER_DOWN, () => {
+            if (GameState.buyHackUpgrade(key)) {
+              this.showToast(`${label} Lv ${cur + 1}`)
+              this.refreshPanel()
+            }
+          })
+        }
+        children.push(btn)
+      } else {
+        children.push(addLabel(this, width - 20, y + 6, 'MAX', 12, CSS.yellow).setOrigin(1, 0))
+      }
+    })
+
+    this.panel = this.add.container(0, this.panelOpenY, children).setDepth(5000)
+  }
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   private makeHandle(width: number): Phaser.GameObjects.Rectangle {
@@ -376,6 +603,15 @@ export class UIScene extends Phaser.Scene {
       if (this.panelKind) this.refreshPanel()
     })
     ev.off('boss'); ev.on('boss', (depth: number) => this.showToast(`¡Boss derrotado! Prof ${depth}`))
+    ev.off('openBuilding'); ev.on('openBuilding', (kind: BuildingKind) => {
+      if (this.panelKind === kind) return
+      this.closePanel(false)
+      this.openPanel(kind)
+    })
+    ev.off('closeBuilding'); ev.on('closeBuilding', () => {
+      const bKinds: BuildingKind[] = ['health', 'market', 'repair', 'hack']
+      if (this.panelKind && (bKinds as string[]).includes(this.panelKind)) this.closePanel()
+    })
   }
 
   // ─── Feedback ───────────────────────────────────────────────────────────────

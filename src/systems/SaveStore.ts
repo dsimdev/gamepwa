@@ -14,6 +14,13 @@ export interface SaveData {
   statLevels?: Partial<Record<string, number>>
   statResetCount?: number
   respawnCount?: number
+  hackUpgrades?: {
+    terminalCharges: number
+    terminalYield: number
+    farmSpeed: number
+    dungeonDiscount: number
+    baseRegen: number
+  }
 }
 
 export interface SaveStore {

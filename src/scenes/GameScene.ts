@@ -29,17 +29,25 @@ const TRANSITION_LOCK_MS = 350
 const OW_W = 720
 const OW_H = 1280
 
-const DUNGEON_CHIP_COST = 5
-const TERMINAL_FARM_MS = 3000
+const TERMINAL_FARM_MS_BASE = 3000
 const TERMINAL_RANGE = 52
 const BASE_EXCL_R = 110
+const BUILDING_SAFE_R = 80       // radio exclusión mobs + proyectiles en edificios
+const BUILDING_INTERACT_R = 52   // radio para abrir el panel del edificio
 const ELITE_CHANCE = 0.28
-const SKILL_CD_MS  = 5_000   // 5s cooldown fijo para todos los skills
+const SKILL_CD_MS  = 5_000
 
-type Mode       = 'overworld' | 'run'
-type PortalKind = 'dungeon' | 'overworld' | 'stash'
-type EliteMod   = 'armored' | 'swift' | 'explosive'
-type SkillType  = 'attack' | 'defense' | 'special'
+type Mode         = 'overworld' | 'run'
+type PortalKind   = 'dungeon' | 'overworld' | 'stash'
+type EliteMod     = 'armored' | 'swift' | 'explosive'
+type SkillType    = 'attack' | 'defense' | 'special'
+export type BuildingKind = 'health' | 'market' | 'repair' | 'hack'
+
+interface BuildingData {
+  kind: BuildingKind
+  x: number
+  y: number
+}
 const ELITE_MODS: EliteMod[] = ['armored', 'swift', 'explosive']
 
 export class GameScene extends Phaser.Scene implements CombatContext, EnemyContext {
@@ -82,6 +90,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private farmProgressBg?: Phaser.GameObjects.Rectangle
   private lastPlayerHp = -1
   private wasInBase = false
+  private buildings: BuildingData[] = []
+  private activeBuilding?: BuildingKind
+  private safeZoneFrame = 0
 
   // Trampas (dungeon)
   private traps: Array<{
@@ -115,6 +126,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.farmProgressBg = undefined
     this.lastPlayerHp = -1
     this.wasInBase = false
+    this.buildings = []
+    this.activeBuilding = undefined
+    this.safeZoneFrame = 0
     this.traps = []
     this.bossAuraTimer = undefined
     this.skillCdUntil = { attack: 0, defense: 0, special: 0 }
@@ -185,7 +199,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     // Skills: botones ATK / DEF / ESP en UIScene
     this.events.off('useSkill')
     this.events.on('useSkill', (type: SkillType) => {
-      if (this.player.inBase || this.player.isDashing) return
+      if (this.player.inSafeZone || this.player.isDashing) return
       const now = this.time.now
       if (now < this.skillCdUntil[type]) {
         this.events.emit('toast', 'Skill en cooldown')
@@ -258,7 +272,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     addLabel(this, bx, by - 92, 'BASE', 16, CSS.cyan).setOrigin(0.5)
 
     this.addPortal('stash', bx - 52, by, COLORS.neonCyan, 'STASH')
-    this.addPortal('dungeon', OW_W - 140, by - 200, COLORS.neonMagenta, `DUNGEON (${DUNGEON_CHIP_COST}⬡)`)
+    this.addPortal('dungeon', OW_W - 140, by - 200, COLORS.neonMagenta, `DUNGEON (${GameState.dungeonCost}⬡)`)
+
+    // Edificios dispersos — zonas seguras (sin regen), cada uno abre un panel de servicio
+    this.addBuilding('health', OW_W * 0.18, OW_H * 0.18)
+    this.addBuilding('market', OW_W * 0.82, OW_H * 0.18)
+    this.addBuilding('repair', OW_W * 0.18, OW_H * 0.82)
+    this.addBuilding('hack',   OW_W * 0.82, OW_H * 0.82)
 
     // Terminales para farmear chips
     this.addTerminal(OW_W * 0.22, OW_H * 0.28)
@@ -285,7 +305,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       callback: () => {
         if (this.mode !== 'overworld') return
         const alive = this.enemies.getChildren().filter(e => !(e as Enemy).isDead).length
-        if (alive < 10) this.spawnOverworldMobs(14 - alive)
+        if (alive < 6) this.spawnOverworldMobs(10 - alive)
       },
       loop: true,
     })
@@ -302,7 +322,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private spawnOverworldMobs(count?: number): void {
     const scale = this.difficultyScale()
-    const n = count ?? (18 + Math.min(8, GameState.depth * 2))
+    const n = count ?? (8 + Math.min(4, GameState.depth))
     const safeDist = 180
     const bx = OW_W / 2
     const by = OW_H / 2
@@ -680,6 +700,29 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.portalZones.push({ kind, rect: new Phaser.Geom.Rectangle(x - 22, y - 22, 44, 44) })
   }
 
+  private addBuilding(kind: BuildingKind, x: number, y: number): void {
+    const CFG: Record<BuildingKind, { color: number; icon: string; label: string }> = {
+      health: { color: 0x2ecc71, icon: '+',  label: 'SALUD'  },
+      market: { color: 0xf1c40f, icon: '◆',  label: 'MARKET' },
+      repair: { color: 0xe67e22, icon: '⚙',  label: 'TALLER' },
+      hack:   { color: 0x00aaff, icon: '⬡',  label: 'HACKEO' },
+    }
+    const { color, icon, label } = CFG[kind]
+    const hexCol = `#${color.toString(16).padStart(6, '0')}`
+
+    // Radio de zona segura (hint visual)
+    const g = this.add.graphics()
+    g.lineStyle(1, color, 0.14)
+    g.strokeCircle(x, y, BUILDING_SAFE_R)
+
+    // Cuerpo del edificio
+    this.add.rectangle(x, y, 56, 56, color, 0.18).setStrokeStyle(2, color)
+    addLabel(this, x, y, icon,  18, hexCol).setOrigin(0.5, 0.5)
+    addLabel(this, x, y + 36, label, 10, hexCol).setOrigin(0.5, 0)
+
+    this.buildings.push({ kind, x, y })
+  }
+
   private buildBorderWalls(w: number, h: number): void {
     this.addWall(w / 2, WALL / 2, w, WALL)
     this.addWall(w / 2, h - WALL / 2, w, WALL)
@@ -944,13 +987,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- Transiciones de escena (overworld ↔ run) ---
 
   private enterDungeon(): void {
-    if (GameState.chips < DUNGEON_CHIP_COST) {
-      // Cooldown de 1.5s para no spamear el toast cada frame
+    const cost = GameState.dungeonCost
+    if (GameState.chips < cost) {
       this.transitionLockUntil = this.time.now + 1500
-      this.events.emit('toast', `⬡ ${GameState.chips}/${DUNGEON_CHIP_COST} chips — farmeá en terminales`)
+      this.events.emit('toast', `⬡ ${GameState.chips}/${cost} chips — farmeá en terminales`)
       return
     }
-    GameState.chips -= DUNGEON_CHIP_COST
+    GameState.chips -= cost
     GameState.persist()
     this.switchScene('run')
   }
@@ -1003,27 +1046,48 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   // --- Zona segura de base ---
 
-  private enforceBaseExclusion(): void {
-    const bx = OW_W / 2
-    const by = OW_H / 2
-    // Empujar mobs fuera del radio de exclusión
+  private checkBuildingEntry(): void {
+    const prev = this.activeBuilding
+    this.activeBuilding = undefined
+    for (const b of this.buildings) {
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, b.x, b.y) < BUILDING_INTERACT_R) {
+        this.activeBuilding = b.kind
+        break
+      }
+    }
+    if (this.activeBuilding !== prev) {
+      if (this.activeBuilding) this.events.emit('openBuilding', this.activeBuilding)
+      else                      this.events.emit('closeBuilding')
+    }
+  }
+
+  private enforceSafeZones(): void {
+    // Zonas seguras: base + todos los edificios
+    const zones = [
+      { x: OW_W / 2, y: OW_H / 2, r: BASE_EXCL_R },
+      ...this.buildings.map(b => ({ x: b.x, y: b.y, r: BUILDING_SAFE_R })),
+    ]
     for (const c of this.enemies.getChildren()) {
       const e = c as Enemy
       if (e.isDead) continue
-      const dist = Phaser.Math.Distance.Between(e.x, e.y, bx, by)
-      if (dist < BASE_EXCL_R) {
-        const dir = new Phaser.Math.Vector2(e.x - bx, e.y - by)
-        if (dir.lengthSq() < 0.01) dir.set(1, 0)
-        dir.normalize()
-        e.setPosition(bx + dir.x * BASE_EXCL_R, by + dir.y * BASE_EXCL_R)
-        e.setVelocity(dir.x * 60, dir.y * 60)
+      for (const z of zones) {
+        const dist = Phaser.Math.Distance.Between(e.x, e.y, z.x, z.y)
+        if (dist < z.r) {
+          const dir = new Phaser.Math.Vector2(e.x - z.x, e.y - z.y)
+          if (dir.lengthSq() < 0.01) dir.set(1, 0)
+          dir.normalize()
+          e.setPosition(z.x + dir.x * z.r, z.y + dir.y * z.r)
+          e.setVelocity(dir.x * 60, dir.y * 60)
+          break
+        }
       }
     }
-    // Destruir proyectiles enemigos que entren a la base
     for (const c of this.enemyProjectiles.getChildren()) {
       const p = c as import('../combat/Projectile').Projectile
       if (!p.active) continue
-      if (Phaser.Math.Distance.Between(p.x, p.y, bx, by) < BASE_EXCL_R) p.kill()
+      for (const z of zones) {
+        if (Phaser.Math.Distance.Between(p.x, p.y, z.x, z.y) < z.r) { p.kill(); break }
+      }
     }
   }
 
@@ -1062,7 +1126,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- Terminales ---
 
   private addTerminal(x: number, y: number): void {
-    const maxCharges = 3
+    const maxCharges = 3 + GameState.hackUpgrades.terminalCharges
     const color = 0x00aaff
     const bg = this.add.rectangle(x, y, 32, 32, color, 0.2).setStrokeStyle(2, color)
     addLabel(this, x, y, '⬡', 16, CSS.cyan).setOrigin(0.5, 0.5)
@@ -1117,14 +1181,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
 
     this.farmProgress += delta
+    const farmMs = Math.max(1200, TERMINAL_FARM_MS_BASE - GameState.hackUpgrades.farmSpeed * 600)
     if (this.farmProgressBar) {
-      this.farmProgressBar.width = 52 * Math.min(this.farmProgress / TERMINAL_FARM_MS, 1)
+      this.farmProgressBar.width = 52 * Math.min(this.farmProgress / farmMs, 1)
     }
 
-    if (this.farmProgress >= TERMINAL_FARM_MS) {
+    if (this.farmProgress >= farmMs) {
       this.farmProgress = 0
       const t = this.terminals[nearIdx]
-      const chips = Phaser.Math.Between(1, 3)
+      const yld = GameState.hackUpgrades.terminalYield
+      const chips = Phaser.Math.Between(1 + yld, 3 + yld)
       GameState.addChips(chips)
       this.events.emit('toast', `+${chips} ⬡`)
 
@@ -1429,11 +1495,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (this.mode === 'overworld') {
       const bx = OW_W / 2, by = OW_H / 2
       this.player.inBase = Phaser.Math.Distance.Between(this.player.x, this.player.y, bx, by) < 90
-      // Al entrar a la base: mobs se desprovoan y se curan
       if (this.player.inBase && !this.wasInBase) this.resetEnemiesOnBaseEnter()
       this.wasInBase = this.player.inBase
+      // inSafeZone = base O cualquier edificio
+      const inBld = this.buildings.some(b =>
+        Phaser.Math.Distance.Between(this.player.x, this.player.y, b.x, b.y) < BUILDING_SAFE_R
+      )
+      this.player.inSafeZone = this.player.inBase || inBld
     } else {
       this.player.inBase = false
+      this.player.inSafeZone = false
     }
 
     this.player.update(time, delta)
@@ -1441,8 +1512,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     // Zona segura de base (overworld): mobs y proyectiles no pueden entrar
     if (this.mode === 'overworld') {
-      this.enforceBaseExclusion()
+      // Excluir mobs de zonas seguras cada 3 frames (no necesita 60fps)
+      if (++this.safeZoneFrame % 3 === 0) this.enforceSafeZones()
       this.updateTerminals(delta)
+      this.checkBuildingEntry()
     }
 
     // Escudo de plasma — anillo visual que sigue al jugador
@@ -1454,8 +1527,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       }
     }
 
-    // Auto-ataque: bloqueado dentro de la base (zona neutral)
-    if (!this.player.inBase) this.handleAutoAttack()
+    // Auto-ataque: bloqueado en zonas seguras
+    if (!this.player.inSafeZone) this.handleAutoAttack()
 
     if (this.mode === 'run') {
       this.updateBossBar()
