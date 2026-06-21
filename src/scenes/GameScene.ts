@@ -92,7 +92,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private wasInBase = false
   private buildings: BuildingData[] = []
   private activeBuilding?: BuildingKind
-  private safeZoneFrame = 0
 
   // Trampas (dungeon)
   private traps: Array<{
@@ -112,6 +111,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private lifeStealUntil = 0
   private shieldRing?: Phaser.GameObjects.Graphics
   private shieldRingVisible = false
+  private frameCounter = 0
 
   constructor() {
     super({ key: 'GameScene' })
@@ -132,13 +132,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.wasInBase = false
     this.buildings = []
     this.activeBuilding = undefined
-    this.safeZoneFrame = 0
     this.traps = []
     this.bossAuraTimer = undefined
     this.skillCdUntil = { attack: 0, defense: 0, special: 0 }
     this.lifeStealUntil = 0
     this.shieldRing = undefined
+    this.shieldRingVisible = false
     this.loopTimers = []
+    this.frameCounter = 0
   }
 
   shutdown() {
@@ -1369,30 +1370,22 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private showAoeEffect(x: number, y: number, radius: number, color: number): void {
-    const g = this.add.graphics()
-    const state = { r: 6, a: 1 }
+    // Arc en vez de Graphics — GPU maneja transform/alpha, cero redibujado por frame
+    const arc = this.add.arc(x, y, 6, 0, 360, false, color, 0.20)
+      .setStrokeStyle(3, color, 1).setDepth(500)
+    const target = radius / 6
     this.tweens.add({
-      targets: state,
-      r: radius,
-      a: 0,
-      duration: 380,
-      ease: 'Cubic.Out',
-      onUpdate: () => {
-        g.clear()
-        g.fillStyle(color, state.a * 0.18)
-        g.fillCircle(x, y, state.r)
-        g.lineStyle(3, color, state.a)
-        g.strokeCircle(x, y, state.r)
-      },
-      onComplete: () => g.destroy(),
+      targets: arc, scaleX: target, scaleY: target, alpha: 0,
+      duration: 380, ease: 'Cubic.Out',
+      onComplete: () => arc.destroy(),
     })
   }
 
   private showChainEffect(x1: number, y1: number, x2: number, y2: number): void {
-    const g = this.add.graphics()
-    g.lineStyle(3, ELEMENT_COLORS.electro, 1)
-    g.lineBetween(x1, y1, x2, y2)
-    this.tweens.add({ targets: g, alpha: 0, duration: 220, onComplete: () => g.destroy() })
+    // Line en vez de Graphics
+    const ln = this.add.line(0, 0, x1, y1, x2, y2, ELEMENT_COLORS.electro, 1)
+      .setDepth(500).setOrigin(0)
+    this.tweens.add({ targets: ln, alpha: 0, duration: 220, onComplete: () => ln.destroy() })
   }
 
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void {
@@ -1556,13 +1549,18 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
 
     this.player.update(time, delta)
-    this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
+
+    // AI de enemigos: alterna frames para repartir carga (frame par → índices pares, etc.)
+    const fc = ++this.frameCounter
+    const children = this.enemies.getChildren()
+    for (let i = fc % 2; i < children.length; i += 2) {
+      (children[i] as Enemy).update(this.player, time, delta)
+    }
 
     // Overworld: checks que no necesitan 60fps
     if (this.mode === 'overworld') {
-      ++this.safeZoneFrame
-      if (this.safeZoneFrame % 3 === 0) this.enforceSafeZones()
-      if (this.safeZoneFrame % 6 === 0) this.checkBuildingEntry()
+      if (fc % 3 === 0) this.enforceSafeZones()
+      if (fc % 6 === 0) this.checkBuildingEntry()
       this.updateTerminals(delta)
     }
 
@@ -1584,7 +1582,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     if (this.mode === 'run') {
       this.updateBossBar()
-      this.updateRoomCleared()
+      if (fc % 10 === 0) this.updateRoomCleared()
       this.checkDoorTransitions(time)
     }
 
