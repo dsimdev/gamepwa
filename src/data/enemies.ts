@@ -74,6 +74,8 @@ export const ENEMIES: Record<string, EnemyDef> = {
     xpReward: 2,  // overworld: muy poca XP para forzar a dungear
     color: 0x88bb44,
     size: 22,
+    resistances: { plasma: 0.4 },
+    weaknesses: { fire: 1.4 },
   },
   ow_guard: {
     key: 'mage',             // reutiliza textura/color de Torreta

@@ -22,6 +22,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   onDeath?: (enemy: Enemy) => void
 
   provoked = false
+  eliteTintColor?: number   // tinte que se restaura después del flash de golpe
+  bonusResistance = 0       // resistencia flat extra (élite Blindado)
 
   private behavior: AIBehavior
   private context: EnemyContext
@@ -85,7 +87,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
     let finalDamage = amount
     if (element) {
-      const res = this.def.resistances?.[element] ?? 0
+      const res = Math.min((this.def.resistances?.[element] ?? 0) + this.bonusResistance, 0.85)
       const weak = this.def.weaknesses?.[element] ?? 1
       finalDamage = amount * weak * (1 - res)
       if (res > 0.3) {
@@ -97,8 +99,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
     this.provoked = true
     this.health.damage(finalDamage)
-    this.setTint(0xffffff)  // flash de golpe (Phaser 4: setTintFill removido)
-    this.scene.time.delayedCall(70, () => this.clearTint())
+    this.setTint(0xffffff)  // flash de golpe
+    this.scene.time.delayedCall(70, () => {
+      if (this.eliteTintColor) this.setTint(this.eliteTintColor)
+      else this.clearTint()
+    })
 
     if (knockbackFrom) {
       const dir = new Phaser.Math.Vector2(this.x - knockbackFrom.x, this.y - knockbackFrom.y).normalize()

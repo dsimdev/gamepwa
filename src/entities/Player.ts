@@ -34,7 +34,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   facing = new Phaser.Math.Vector2(0, 1)
-  inBase = false  // GameScene lo activa cuando el jugador está en la base (overworld)
+  inBase = false
+  isDashing = false     // invulnerable y sin input durante el dash
+  shieldHp = 0          // escudo de plasma — absorbe daño antes que la vida
+  tempDefBonus = 0      // bonus temporal de DEF (pared de fuego)
 
   private nextAttackAt = 0
   private invulnUntil = 0
@@ -81,13 +84,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.health.update(delta)
     this.mana.update(delta)
 
-    const move = this.inputManager.getMove()
-    this.setVelocity(move.x * this.stats.moveSpeed, move.y * this.stats.moveSpeed)
-
-    if (move.lengthSq() > 0) {
-      this.facing.copy(move).normalize()
-      if (move.x < 0) this.setFlipX(true)
-      else if (move.x > 0) this.setFlipX(false)
+    if (!this.isDashing) {
+      const move = this.inputManager.getMove()
+      this.setVelocity(move.x * this.stats.moveSpeed, move.y * this.stats.moveSpeed)
+      if (move.lengthSq() > 0) {
+        this.facing.copy(move).normalize()
+        if (move.x < 0) this.setFlipX(true)
+        else if (move.x > 0) this.setFlipX(false)
+      }
     }
 
     this.setAlpha(this.scene.time.now < this.invulnUntil ? 0.5 : 1)
@@ -139,9 +143,17 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
 
   takeDamage(amount: number, _knockbackFrom?: Phaser.Math.Vector2, _element?: ElementType): void {
     const now = this.scene.time.now
-    if (now < this.invulnUntil || this.isDead) return
+    if (now < this.invulnUntil || this.isDead || this.isDashing) return
     this.markCombat()
-    this.health.damage(applyDefense(amount, this.stats.defense))
+    let dmg = applyDefense(amount, this.stats.defense + this.tempDefBonus)
+    if (this.shieldHp > 0) {
+      const absorbed = Math.min(this.shieldHp, dmg)
+      this.shieldHp -= absorbed
+      dmg -= absorbed
+      if (this.shieldHp <= 0) this.scene.events.emit('toast', 'Escudo roto')
+      if (dmg <= 0) { this.invulnUntil = now + INVULN_MS; return }
+    }
+    this.health.damage(dmg)
     this.invulnUntil = now + INVULN_MS
     if (this.isDead) {
       this.setTint(0x555555)

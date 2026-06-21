@@ -7,7 +7,7 @@ import { GameState } from '../systems/GameState'
 import { WEAPONS } from '../data/weapons'
 import { isUnbreakable } from '../items/types'
 import { addLabel, COLORS, CSS } from '../ui/theme'
-import { ELEMENT_CSS, ELEMENT_COLORS, ELEMENT_NAMES } from '../data/elements'
+import { ELEMENT_CSS, ELEMENT_NAMES } from '../data/elements'
 import type { ElementType } from '../data/elements'
 import { STAT_DEFS, STAT_KEYS } from '../data/playerStats'
 import type { ItemInstance } from '../items/types'
@@ -32,7 +32,6 @@ export class UIScene extends Phaser.Scene {
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
   private levelText!: Phaser.GameObjects.Text
-  private chipsText!: Phaser.GameObjects.Text
   private pointsText!: Phaser.GameObjects.Text
   private lastHp    = -1
   private lastLevel = -1
@@ -70,8 +69,7 @@ export class UIScene extends Phaser.Scene {
 
     // HUD labels top-right
     this.levelText  = addLabel(this, width - 8, 10, 'Lv 1', 16, CSS.yellow).setOrigin(1, 0)
-    this.chipsText  = addLabel(this, width - 8, 30, '⬡ 0',  14, CSS.cyan).setOrigin(1, 0)
-    this.pointsText = addLabel(this, width - 8, 48, '',      14, CSS.yellow).setOrigin(1, 0)
+    this.pointsText = addLabel(this, width - 8, 28, '',      14, CSS.yellow).setOrigin(1, 0)
 
     // Info label (biome / mode)
     addLabel(this, width / 2, 8, this.info, 14, CSS.light).setOrigin(0.5, 0)
@@ -205,8 +203,8 @@ export class UIScene extends Phaser.Scene {
     const extras: Phaser.GameObjects.GameObject[] = []
     if (isBag) {
       extras.push(
-        addLabel(this, 20, 62, `◆ ${GameState.coins} coins  (se pierden al morir)`, 12, '#e74c3c').setOrigin(0, 0),
-        addLabel(this, 20, 78, `⬡ ${GameState.chips} chips  (se pierden al morir)`, 12, CSS.cyan).setOrigin(0, 0),
+        addLabel(this, 20, 62, `◆ ${GameState.coins} coins`, 12, '#e74c3c').setOrigin(0, 0),
+        addLabel(this, 20, 78, `⬡ ${GameState.chips} chips`, 12, CSS.cyan).setOrigin(0, 0),
       )
       const els: ElementType[] = ['fire', 'electro', 'plasma']
       const elW = (width - 40) / 3
@@ -364,7 +362,6 @@ export class UIScene extends Phaser.Scene {
       this.levelText.setText(`Lv ${this.player.level}`)
     }
 
-    this.chipsText.setText(`⬡ ${GameState.chips}`)
     const pts = GameState.statPoints
     this.pointsText.setText(pts > 0 ? `★ ${pts}` : '')
   }
@@ -422,19 +419,19 @@ export class UIScene extends Phaser.Scene {
     // Joystick: no activa dentro de la nav bar
     new VirtualJoystick(this, (x, y) => this.registry.set(INPUT_KEYS.move, { x, y }), height - NAVBAR_H)
 
-    // 3 skills en triángulo — arriba de la nav bar
-    const skills: [ElementType, string][] = [
-      ['fire',    '🔥'],
-      ['electro', '⚡'],
-      ['plasma',  '💜'],
+    // 3 skills en triángulo — arriba de la nav bar: ATK · DEF · ESP
+    const skills: Array<{ type: string; label: string; color: number }> = [
+      { type: 'attack',  label: 'ATK', color: 0xff4422 },
+      { type: 'special', label: 'ESP', color: 0xaa44ff },
+      { type: 'defense', label: 'DEF', color: 0x2266ff },
     ]
     const bx = width  - 68
     const by = height - NAVBAR_H - 68
     const offsets: [number, number][] = [[-58, 0], [0, 0], [-29, -58]]
-    skills.forEach(([el, emoji], i) => {
+    skills.forEach(({ type, label, color }, i) => {
       const [dx, dy] = offsets[i]
-      new ActionButton(this, bx + dx, by + dy, ELEMENT_COLORS[el], emoji,
-        () => this.player.scene.events.emit('useSkill', el),
+      new ActionButton(this, bx + dx, by + dy, color, label,
+        () => this.player.scene.events.emit('useSkill', type),
         () => {}
       )
     })
