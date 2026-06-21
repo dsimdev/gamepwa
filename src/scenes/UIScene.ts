@@ -15,12 +15,10 @@ import type { StatKey } from '../data/playerStats'
 import type { BuildingKind } from '../scenes/GameScene'
 
 const HEART_SIZE = 16
-const HEART_GAP  = 20
 const MARGIN     = 12
 const MANA_BAR_W = 112
 const MANA_BAR_H = 8
 const XP_BAR_H   = 4
-const MAX_HEARTS  = 10
 const NAVBAR_H    = 44
 const PANEL_RATIO = 0.45   // el panel ocupa el 45% de la altura de pantalla
 
@@ -28,7 +26,8 @@ export class UIScene extends Phaser.Scene {
   private player!: Player
   private info = ''
 
-  private hearts: Phaser.GameObjects.GameObject[] = []
+  private hpBarFill!: Phaser.GameObjects.Rectangle
+  private hpText!: Phaser.GameObjects.Text
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
   private levelText!: Phaser.GameObjects.Text
@@ -61,8 +60,12 @@ export class UIScene extends Phaser.Scene {
     this.add.rectangle(0, 0, width, XP_BAR_H, 0x1a1a2e).setOrigin(0, 0)
     this.xpBar = this.add.rectangle(0, 0, 0, XP_BAR_H, COLORS.xp).setOrigin(0, 0)
 
-    // HP + mana
-    this.drawHealth(this.player.health.max, this.player.health.max)
+    // HP + mana — objetos persistentes, solo actualizan width/texto (no destroy/create por frame)
+    const HP_BAR_W = 140
+    this.add.rectangle(MARGIN, MARGIN, HP_BAR_W, HEART_SIZE, COLORS.hpDim).setOrigin(0, 0)
+    this.hpBarFill = this.add.rectangle(MARGIN, MARGIN, HP_BAR_W, HEART_SIZE, COLORS.hp).setOrigin(0, 0)
+    this.hpText = addLabel(this, MARGIN + HP_BAR_W + 8, MARGIN - 1, '', 16, CSS.light).setOrigin(0, 0)
+    this.drawHealth(this.player.health.current, this.player.health.max)
     this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 6, MANA_BAR_W, MANA_BAR_H, COLORS.manaDim).setOrigin(0, 0)
     this.manaBar = this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 6, MANA_BAR_W, MANA_BAR_H, COLORS.mana).setOrigin(0, 0)
 
@@ -673,19 +676,8 @@ export class UIScene extends Phaser.Scene {
   // ─── HP ─────────────────────────────────────────────────────────────────────
 
   private drawHealth(current: number, max: number) {
-    this.hearts.forEach(h => h.destroy())
-    this.hearts = []
-    if (max <= MAX_HEARTS) {
-      for (let i = 0; i < max; i++) {
-        const color = i < current ? COLORS.hp : 0x3a3a4a
-        this.hearts.push(this.add.rectangle(MARGIN + i * HEART_GAP, MARGIN, HEART_SIZE, HEART_SIZE, color).setOrigin(0, 0))
-      }
-      return
-    }
-    const bw = 140
-    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw, HEART_SIZE, COLORS.hpDim).setOrigin(0, 0))
-    this.hearts.push(this.add.rectangle(MARGIN, MARGIN, bw * (current / max), HEART_SIZE, COLORS.hp).setOrigin(0, 0))
-    this.hearts.push(addLabel(this, MARGIN + bw + 8, MARGIN - 1, `${current}/${max}`, 16, CSS.light).setOrigin(0, 0))
+    this.hpBarFill.width = Math.round(140 * Math.max(0, current) / Math.max(1, max))
+    this.hpText.setText(`${current}/${max}`)
   }
 
   // ─── Controles táctiles ──────────────────────────────────────────────────────

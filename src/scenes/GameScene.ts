@@ -544,13 +544,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const tx = Phaser.Math.Clamp(this.player.x + this.player.facing.x * DIST, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
     const ty = Phaser.Math.Clamp(this.player.y + this.player.facing.y * DIST, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
     const ox = this.player.x, oy = this.player.y
+    // snapshot una sola vez antes del tween — evita getChildren() cada frame durante 200ms
+    const dashTargets = this.enemies.getChildren().filter(c => !(c as Enemy).isDead) as Enemy[]
     this.player.isDashing = true
     this.player.setTint(ELEMENT_COLORS.plasma)
     this.tweens.add({
       targets: this.player, x: tx, y: ty, duration: 200, ease: 'Cubic.Out',
       onUpdate: () => {
-        for (const c of this.enemies.getChildren()) {
-          const e = c as Enemy
+        for (const e of dashTargets) {
           if (e.isDead) continue
           if (Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y) < 34) {
             e.takeDamage(DMG, new Phaser.Math.Vector2(ox, oy), 'plasma')
@@ -570,14 +571,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const state = { r: 0 }
     const px = this.player.x, py = this.player.y
     const hit = new Set<Enemy>()
+    // snapshot una sola vez antes del tween — evita getChildren() cada frame durante 700ms
+    const waveCandidates = this.enemies.getChildren().filter(c => !(c as Enemy).isDead) as Enemy[]
     this.tweens.add({
       targets: state, r: maxR, duration: 700, ease: 'Cubic.Out',
       onUpdate: () => {
         g.clear()
         g.lineStyle(6, ELEMENT_COLORS.electro, 0.8 * (1 - state.r / maxR))
         g.strokeCircle(px, py, state.r)
-        for (const c of this.enemies.getChildren()) {
-          const e = c as Enemy
+        for (const e of waveCandidates) {
           if (e.isDead || hit.has(e)) continue
           const d = Phaser.Math.Distance.Between(px, py, e.x, e.y)
           if (Math.abs(d - state.r) < 22) { e.takeDamage(DMG, new Phaser.Math.Vector2(px, py), 'electro'); hit.add(e) }
@@ -1548,8 +1550,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     // Overworld: checks que no necesitan 60fps
     if (this.mode === 'overworld') {
-      if (fc % 3 === 0) this.enforceSafeZones()
-      if (fc % 6 === 0) this.checkBuildingEntry()
+      if (fc % 9 === 0) this.enforceSafeZones()
+      if (fc % 12 === 0) this.checkBuildingEntry()
       this.updateTerminals(delta)
     }
 

@@ -71,6 +71,7 @@ class GameStateClass {
   lastOutcome: 'retreat' | 'death' | 'victory' | null = null
 
   private store = new IndexedDBSaveStore()
+  private _saveTimer: ReturnType<typeof setTimeout> | null = null
 
   async load(): Promise<void> {
     const data = await this.store.load()
@@ -105,6 +106,21 @@ class GameStateClass {
   }
 
   persist(): void {
+    // Debounce: máximo 1 write a IndexedDB cada 400ms sin importar cuántos persist() se llamen
+    if (this._saveTimer !== null) return
+    this._saveTimer = setTimeout(() => {
+      this._saveTimer = null
+      this._doSave()
+    }, 400)
+  }
+
+  // Para eventos críticos (muerte, nivel up) que no pueden esperar el debounce
+  persistNow(): void {
+    if (this._saveTimer !== null) { clearTimeout(this._saveTimer); this._saveTimer = null }
+    this._doSave()
+  }
+
+  private _doSave(): void {
     const data: SaveData = {
       level: this.level,
       xp: this.xp,
@@ -127,14 +143,14 @@ class GameStateClass {
 
   addStatPoints(n: number): void {
     this.statPoints += n
-    this.persist()  // persistir inmediatamente para no perder el nivel ganado
+    this.persistNow()  // nivel ganado: no puede esperar el debounce
   }
 
   allocateStat(key: StatKey): boolean {
     if (this.statPoints <= 0) return false
     this.statPoints--
     this.statLevels[key] = (this.statLevels[key] ?? 0) + 1
-    this.persist()
+    this.persistNow()
     return true
   }
 
@@ -147,7 +163,7 @@ class GameStateClass {
     this.statPoints += invested
     this.statLevels = {}
     this.statResetCount++
-    this.persist()
+    this.persistNow()
     return true
   }
 
