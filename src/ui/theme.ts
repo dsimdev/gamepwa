@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 
 export const FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', sans-serif"
-export const TEXT_RES = 2
+export const TEXT_RES = 1  // 1 = la mitad de VRAM para texto; el canvas ya corre a resolución nativa
 
 /** Paleta cyberpunk: neón sobre oscuro. */
 export const COLORS = {

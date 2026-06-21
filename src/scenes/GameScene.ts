@@ -104,6 +104,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // Boss aura
   private bossAuraTimer?: Phaser.Time.TimerEvent
 
+  // Timers con loop — guardados para destruir en shutdown y evitar leak
+  private loopTimers: Phaser.Time.TimerEvent[] = []
+
   // Skills
   private skillCdUntil: Record<SkillType, number> = { attack: 0, defense: 0, special: 0 }
   private lifeStealUntil = 0
@@ -134,6 +137,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.skillCdUntil = { attack: 0, defense: 0, special: 0 }
     this.lifeStealUntil = 0
     this.shieldRing = undefined
+    this.loopTimers = []
+  }
+
+  shutdown() {
+    // Destruir todos los timers con loop para evitar que sigan corriendo entre escenas
+    this.loopTimers.forEach(t => t.destroy())
+    this.loopTimers = []
+    this.bossAuraTimer?.destroy()
   }
 
   create() {
@@ -240,7 +251,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.dungeon = generateDungeon(9)
       this.buildRoom(this.dungeon.start)
       // Temporizador de presión: cada 30s aumenta dificultad y manda oleada extra
-      this.time.addEvent({
+      this.loopTimers.push(this.time.addEvent({
         delay: 30_000,
         callback: () => {
           this.dungeonPressure++
@@ -248,7 +259,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
           if (this.current?.type === 'normal' && !this.current.cleared) this.spawnRoomEnemies()
         },
         loop: true,
-      })
+      }))
     }
 
     this.transitionLockUntil = this.time.now + TRANSITION_LOCK_MS
@@ -300,7 +311,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.spawnOverworldSentinel()
 
     // Respawn de mobs cada 25s hasta mantener presión
-    this.time.addEvent({
+    this.loopTimers.push(this.time.addEvent({
       delay: 25_000,
       callback: () => {
         if (this.mode !== 'overworld') return
@@ -308,7 +319,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
         if (alive < 6) this.spawnOverworldMobs(10 - alive)
       },
       loop: true,
-    })
+    }))
 
     if (GameState.lastOutcome === 'victory') {
       this.showCenterText('¡DUNGEON COMPLETADO! — botín a salvo', 0x2ecc71)
@@ -724,11 +735,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
     const { color, icon, label } = CFG[kind]
     const hexCol = `#${color.toString(16).padStart(6, '0')}`
-
-    // Radio de zona segura (hint visual)
-    const g = this.add.graphics()
-    g.lineStyle(1, color, 0.14)
-    g.strokeCircle(x, y, BUILDING_SAFE_R)
 
     // Cuerpo del edificio
     this.add.rectangle(x, y, 56, 56, color, 0.18).setStrokeStyle(2, color)

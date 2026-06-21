@@ -642,6 +642,18 @@ export class UIScene extends Phaser.Scene {
     })
   }
 
+  shutdown() {
+    // Limpiar listeners del event emitter de GameScene para evitar acumulación entre reinicios
+    const ev = this.player?.scene?.events
+    if (!ev) return
+    ev.off('toast')
+    ev.off('stashed')
+    ev.off('boss')
+    ev.off('openBuilding')
+    ev.off('closeBuilding')
+    ev.off('useSkill')
+  }
+
   // ─── Feedback ───────────────────────────────────────────────────────────────
 
   private showToast(text: string) {
