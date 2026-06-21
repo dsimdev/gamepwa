@@ -71,8 +71,8 @@ export class UIScene extends Phaser.Scene {
     this.levelText  = addLabel(this, width - 8, 10, 'Lv 1', 16, CSS.yellow).setOrigin(1, 0)
     this.pointsText = addLabel(this, width - 8, 28, '',      14, CSS.yellow).setOrigin(1, 0)
 
-    // Info label (biome / mode)
-    addLabel(this, width / 2, 8, this.info, 14, CSS.light).setOrigin(0.5, 0)
+    // Info label (biome / mode) — debajo de la barra de maná
+    addLabel(this, width / 2, 48, this.info, 12, CSS.dim).setOrigin(0.5, 0)
 
     this.buildNavBar()
     this.setupTouchControls()
