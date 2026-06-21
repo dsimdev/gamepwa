@@ -8,7 +8,7 @@ import { GameState, STAT_POINTS_PER_LEVEL } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
 import { WEAPONS, LOOTABLE_WEAPONS } from '../data/weapons'
 import { ELEMENT_COLORS, ELEMENT_NAMES } from '../data/elements'
-import { makeItem, KNIFE_KEY, isUnbreakable } from '../items/types'
+import { makeItem, KNIFE_KEY } from '../items/types'
 import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import type { BiomeDef } from '../data/biomes'
@@ -1307,50 +1307,32 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private suggestWeapon(): import('../items/types').ItemInstance | undefined {
     const liveEnemies = this.enemies.getChildren().filter(e => !(e as Enemy).isDead) as Enemy[]
-
-    let bestRangedScore = -Infinity
-    let bestRanged: import('../items/types').ItemInstance | undefined
-    let bestMelee: import('../items/types').ItemInstance | undefined
-
+    let bestScore = -Infinity
+    let bestItem: import('../items/types').ItemInstance | undefined
     for (const item of GameState.bag) {
       const d = WEAPONS[item.key]
-      if (!d) continue
-
-      if (d.element) {
-        // Ranged: solo si tiene ammo
-        if (GameState.ammo[d.element] <= 0) continue
-        const el = d.element as ElementType
-        const score = liveEnemies.length > 0
-          ? liveEnemies.reduce((s, e) => s + (e.def.weaknesses?.[el] ?? 1) - (e.def.resistances?.[el] ?? 0), 0)
-          : 1
-        if (score > bestRangedScore) { bestRangedScore = score; bestRanged = item }
-      } else {
-        // Melee: preferir la de mayor daño base
-        if (!bestMelee || d.damage > (WEAPONS[bestMelee.key]?.damage ?? 0)) bestMelee = item
-      }
+      if (!d?.element || GameState.ammo[d.element] <= 0) continue
+      const el = d.element as ElementType
+      const score = liveEnemies.length > 0
+        ? liveEnemies.reduce((s, e) => s + (e.def.weaknesses?.[el] ?? 1) - (e.def.resistances?.[el] ?? 0), 0)
+        : 1
+      if (score > bestScore) { bestScore = score; bestItem = item }
     }
-
-    // Ranged con ammo primero; si no hay, mejor melee de la bag
-    return bestRanged ?? bestMelee
+    return bestItem
   }
 
   private autoEquipBest(reason: string): void {
     const suggested = this.suggestWeapon()
-    if (!suggested) {
-      this.events.emit('toast', `${reason} — sin alternativas`)
-      return
+    const next = suggested ?? makeItem(KNIFE_KEY)
+    if (suggested) {
+      const idx = GameState.bag.findIndex(i => i === suggested)
+      if (idx >= 0) GameState.bag.splice(idx, 1)
     }
-    const idx = GameState.bag.findIndex(i => i === suggested)
-    if (idx >= 0) GameState.bag.splice(idx, 1)
-    // El arma actual vuelve a la bag si hay espacio (y no es el cuchillo base)
-    const prev = this.player.equippedItem
-    if (!isUnbreakable(prev.key) && (prev.durability ?? 1) > 0) {
-      GameState.addToBag(prev)
-    }
-    this.player.equip(suggested)
-    GameState.equipped = suggested
+    this.player.equip(next)
+    GameState.equipped = next
     GameState.persist()
-    this.events.emit('toast', `${reason} → ${WEAPONS[suggested.key]?.name ?? suggested.key}`)
+    const nextName = WEAPONS[next.key]?.name ?? 'Filo Nano'
+    this.events.emit('toast', suggested ? `${reason} → ${nextName}` : `${reason} — sin alternativas`)
   }
 
   spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, element?: ElementType): void {
