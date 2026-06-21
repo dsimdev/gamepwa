@@ -24,14 +24,17 @@ export class BossAI implements AIBehavior {
 
     const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, player.x, player.y)
 
-    if (dist > LEASH_RANGE) {
-      // Jugador demasiado lejos — vagar sin perseguir
+    if (player.inBase || dist > LEASH_RANGE) {
+      // Jugador en base (indetectable) o demasiado lejos — vagar sin perseguir
       if (time > this.nextWanderAt) {
-        const angle = Math.random() * Math.PI * 2
+        // Si el jugador está en base: alejarse de donde está el sentinel (no campar)
+        const angle = player.inBase
+          ? Math.atan2(enemy.y - player.y, enemy.x - player.x) + (Math.random() - 0.5) * 1.2
+          : Math.random() * Math.PI * 2
         this.wanderDir.set(Math.cos(angle), Math.sin(angle))
-        this.nextWanderAt = time + 2000 + Math.random() * 2000
+        this.nextWanderAt = time + 1800 + Math.random() * 1500
       }
-      enemy.setVelocity(this.wanderDir.x * enemy.speed * 0.4, this.wanderDir.y * enemy.speed * 0.4)
+      enemy.setVelocity(this.wanderDir.x * enemy.speed * 0.5, this.wanderDir.y * enemy.speed * 0.5)
       return
     }
 
