@@ -17,8 +17,10 @@ export class VirtualJoystick {
   private origin = new Phaser.Math.Vector2()
   private value = new Phaser.Math.Vector2()
   private onChange: (x: number, y: number) => void
+  private maxY: number
 
-  constructor(scene: Phaser.Scene, onChange: (x: number, y: number) => void) {
+  constructor(scene: Phaser.Scene, onChange: (x: number, y: number) => void, maxY = Infinity) {
+    this.maxY = maxY
     this.scene = scene
     this.onChange = onChange
 
@@ -40,14 +42,14 @@ export class VirtualJoystick {
     scene.input.on(Phaser.Input.Events.POINTER_UP, this.onUp, this)
   }
 
-  /** Solo controla movimiento desde la mitad izquierda de la pantalla. */
-  private isMovementZone(x: number): boolean {
-    return x < this.scene.scale.width / 2
+  /** Solo controla movimiento desde la mitad izquierda de la pantalla, fuera de la nav bar. */
+  private isMovementZone(x: number, y: number): boolean {
+    return x < this.scene.scale.width / 2 && y < this.maxY
   }
 
   private onDown(pointer: Phaser.Input.Pointer) {
     if (this.pointerId !== null) return
-    if (!this.isMovementZone(pointer.x)) return
+    if (!this.isMovementZone(pointer.x, pointer.y)) return
 
     this.pointerId = pointer.id
     this.origin.set(pointer.x, pointer.y)
