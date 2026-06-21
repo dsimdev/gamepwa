@@ -20,14 +20,19 @@ import type { ElementType } from '../data/elements'
 
 const DROP_CHANCE = 0.3
 
-const W = 640
-const H = 360
+const W = 360
+const H = 640
 const WALL = 28
 const DOOR_GAP = 80
 const TRANSITION_LOCK_MS = 350
 
-const OW_W = 1280
-const OW_H = 800
+const OW_W = 720
+const OW_H = 1280
+
+const DUNGEON_CHIP_COST = 5
+const TERMINAL_FARM_MS = 3000
+const TERMINAL_FARM_CHIPS = 2
+const TERMINAL_RANGE = 52
 
 type Mode = 'overworld' | 'run'
 type PortalKind = 'dungeon' | 'overworld' | 'stash'
@@ -58,6 +63,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private minibossDefeated = false
   private dungeonPressure = 0
 
+  // Terminales (overworld)
+  private terminalPositions: Array<{ x: number; y: number }> = []
+  private activeFarmIdx = -1
+  private farmProgress = 0
+  private farmProgressBar?: Phaser.GameObjects.Rectangle
+  private farmProgressBg?: Phaser.GameObjects.Rectangle
+
   constructor() {
     super({ key: 'GameScene' })
   }
@@ -68,6 +80,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.victoryAchieved = false
     this.minibossDefeated = false
     this.dungeonPressure = 0
+    this.terminalPositions = []
+    this.activeFarmIdx = -1
+    this.farmProgress = 0
+    this.farmProgressBar = undefined
+    this.farmProgressBg = undefined
   }
 
   create() {
@@ -130,6 +147,21 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.events.emit('toast', `${name} se rompió`)
     })
 
+    // Skills activas: el jugador toca un botón de elemento en UIScene
+    this.events.off('useSkill')
+    this.events.on('useSkill', (el: ElementType) => {
+      if ((GameState.ammo[el] ?? 0) <= 0) {
+        this.events.emit('toast', `Sin ${ELEMENT_NAMES[el]}`)
+        return
+      }
+      const nearest = this.findNearestEnemy()
+      const dir = nearest
+        ? new Phaser.Math.Vector2(nearest.enemy.x - this.player.x, nearest.enemy.y - this.player.y).normalize()
+        : this.player.facing.clone()
+      const dmg = this.player.stats.rangedDamage + 2
+      this.spawnPlayerProjectile(this.player.x, this.player.y, dir, dmg, el)
+    })
+
     this.physics.add.collider(this.player, this.walls)
     this.physics.add.collider(this.player, this.doorBlocks)
     this.physics.add.collider(this.enemies, this.walls)
@@ -184,7 +216,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     addLabel(this, bx, by - 92, 'BASE', 16, CSS.cyan).setOrigin(0.5)
 
     this.addPortal('stash', bx - 52, by, COLORS.neonCyan, 'STASH')
-    this.addPortal('dungeon', OW_W - 140, by - 120, COLORS.neonMagenta, 'DUNGEON')
+    this.addPortal('dungeon', OW_W - 140, by - 200, COLORS.neonMagenta, `DUNGEON (${DUNGEON_CHIP_COST}⬡)`)
+
+    // Terminales para farmear chips
+    this.addTerminal(OW_W * 0.22, OW_H * 0.28)
+    this.addTerminal(OW_W * 0.78, OW_H * 0.32)
+    this.addTerminal(OW_W * 0.35, OW_H * 0.72)
 
     const rocks: Array<[number, number, number, number]> = [
       [240, 180, 80, 80],
@@ -484,7 +521,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- Transiciones de escena (overworld ↔ run) ---
 
   private enterDungeon(): void {
-    // El equipo persiste; la bag arranca como esté (lo no depositado se lleva)
+    if (GameState.chips < DUNGEON_CHIP_COST) {
+      this.events.emit('toast', `Necesitás ${DUNGEON_CHIP_COST} ⬡ chips para entrar`)
+      return
+    }
+    GameState.chips -= DUNGEON_CHIP_COST
+    GameState.persist()
     this.switchScene('run')
   }
 
@@ -511,7 +553,99 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (this.time.now < this.stashCooldownUntil) return
     this.stashCooldownUntil = this.time.now + 800
     const n = GameState.depositBag()
-    if (n > 0) this.events.emit('stashed', n)
+    const banked = GameState.depositCoins()
+    if (n > 0 || banked > 0) {
+      const parts: string[] = []
+      if (n > 0) parts.push(`${n} items`)
+      if (banked > 0) parts.push(`+${banked} ◈ → banco`)
+      this.events.emit('toast', parts.join(' · '))
+      this.events.emit('stashed', n)
+    }
+  }
+
+  // --- Auto-ataque ---
+
+  private handleAutoAttack(): void {
+    const result = this.findNearestEnemy()
+    if (!result) return
+    const { enemy, dist } = result
+    // Orientar al jugador hacia el enemigo más cercano
+    const dx = enemy.x - this.player.x
+    const dy = enemy.y - this.player.y
+    if (Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1) {
+      this.player.facing.set(dx, dy).normalize()
+    }
+    // Rango según tipo de arma equipada
+    const weapon = WEAPONS[this.player.equippedItem.key]
+    const range = weapon?.element ? 180 : 90  // ranged: 180px, melee: 90px
+    if (dist <= range) this.player.triggerAttack()
+  }
+
+  private findNearestEnemy(): { enemy: Enemy; dist: number } | null {
+    let nearest: Enemy | null = null
+    let minDist = Infinity
+    for (const c of this.enemies.getChildren()) {
+      const e = c as Enemy
+      if (e.isDead) continue
+      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y)
+      if (d < minDist) { minDist = d; nearest = e }
+    }
+    return nearest ? { enemy: nearest, dist: minDist } : null
+  }
+
+  // --- Terminales ---
+
+  private addTerminal(x: number, y: number): void {
+    this.terminalPositions.push({ x, y })
+    const color = 0x00aaff
+    this.add.rectangle(x, y, 30, 30, color, 0.2).setStrokeStyle(2, color)
+    addLabel(this, x, y, '⬡', 16, CSS.cyan).setOrigin(0.5, 0.5)
+    addLabel(this, x, y + 22, 'TERMINAL', 10, CSS.cyan).setOrigin(0.5, 0)
+    addLabel(this, x, y - 22, `${TERMINAL_FARM_CHIPS}⬡/${TERMINAL_FARM_MS / 1000}s`, 9, '#88aaff').setOrigin(0.5, 1)
+  }
+
+  private updateTerminals(delta: number): void {
+    let nearIdx = -1
+    for (let i = 0; i < this.terminalPositions.length; i++) {
+      const t = this.terminalPositions[i]
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y) < TERMINAL_RANGE) {
+        nearIdx = i; break
+      }
+    }
+
+    if (nearIdx < 0) {
+      if (this.activeFarmIdx >= 0) {
+        this.activeFarmIdx = -1
+        this.farmProgress = 0
+        this.farmProgressBar?.destroy()
+        this.farmProgressBg?.destroy()
+        this.farmProgressBar = undefined
+        this.farmProgressBg = undefined
+      }
+      return
+    }
+
+    if (nearIdx !== this.activeFarmIdx) {
+      this.farmProgressBar?.destroy()
+      this.farmProgressBg?.destroy()
+      this.activeFarmIdx = nearIdx
+      this.farmProgress = 0
+      const t = this.terminalPositions[nearIdx]
+      const bw = 52
+      this.farmProgressBg = this.add.rectangle(t.x, t.y - 32, bw, 6, 0x112233)
+      this.farmProgressBar = this.add.rectangle(t.x - bw / 2, t.y - 32, 0, 6, 0x00aaff).setOrigin(0, 0.5)
+    }
+
+    this.farmProgress += delta
+    if (this.farmProgressBar) {
+      this.farmProgressBar.width = 52 * Math.min(this.farmProgress / TERMINAL_FARM_MS, 1)
+    }
+
+    if (this.farmProgress >= TERMINAL_FARM_MS) {
+      this.farmProgress = 0
+      GameState.addChips(TERMINAL_FARM_CHIPS)
+      this.events.emit('toast', `+${TERMINAL_FARM_CHIPS} ⬡ chips`)
+    }
   }
 
   // --- Texturas placeholder ---
@@ -790,6 +924,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     this.player.update(time, delta)
     this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
+
+    // Auto-ataque por proximidad (orienta al jugador y dispara si en rango)
+    this.handleAutoAttack()
+
+    if (this.mode === 'overworld') {
+      this.updateTerminals(delta)
+    }
 
     if (this.mode === 'run') {
       this.updateBossBar()

@@ -19,7 +19,9 @@ class GameStateClass {
   bag: ItemInstance[] = []
   bagCapacity = DEFAULT_BAG_CAPACITY
 
-  coins = 0
+  coins = 0        // bolsillo — se pierden al morir
+  stashCoins = 0   // banco — sobreviven la muerte
+  chips = 0        // chips de acceso al dungeon — se farmean en terminales
   ammo: Record<ElementType, number> = { fire: 0, electro: 0, plasma: 0 }
 
   statPoints = 0
@@ -49,6 +51,8 @@ class GameStateClass {
         ? { key: data.equipped.key, durability: data.equipped.durability }
         : makeItem(STARTING_WEAPON)
     this.coins = data.coins ?? 0
+    this.stashCoins = data.stashCoins ?? 0
+    this.chips = data.chips ?? 0
     this.ammo = {
       fire:    data.ammo?.fire    ?? 0,
       electro: data.ammo?.electro ?? 0,
@@ -71,6 +75,8 @@ class GameStateClass {
       stash: this.stash,
       equipped: this.equipped,
       coins: this.coins,
+      stashCoins: this.stashCoins,
+      chips: this.chips,
       ammo: { ...this.ammo },
       statPoints: this.statPoints,
       statLevels: { ...this.statLevels },
@@ -95,10 +101,10 @@ class GameStateClass {
 
   resetStats(): boolean {
     const cost = this.statResetCost
-    if (this.coins < cost) return false
+    if (this.stashCoins < cost) return false
     const invested = Object.values(this.statLevels).reduce((s, v) => s + (v ?? 0), 0)
     if (invested === 0) return false
-    this.coins -= cost
+    this.stashCoins -= cost
     this.statPoints += invested
     this.statLevels = {}
     this.statResetCount++
@@ -108,6 +114,21 @@ class GameStateClass {
 
   addCoins(amount: number): void {
     this.coins += amount
+    this.persist()
+  }
+
+  /** Mueve las coins del bolsillo al banco. Devuelve el monto depositado. */
+  depositCoins(): number {
+    const amount = this.coins
+    if (amount <= 0) return 0
+    this.stashCoins += amount
+    this.coins = 0
+    this.persist()
+    return amount
+  }
+
+  addChips(amount: number): void {
+    this.chips += amount
     this.persist()
   }
 
@@ -155,6 +176,8 @@ class GameStateClass {
     this.stash = []
     this.bag = []
     this.coins = 0
+    this.stashCoins = 0
+    this.chips = 0
     this.ammo = { fire: 0, electro: 0, plasma: 0 }
     this.statPoints = 0
     this.statLevels = {}

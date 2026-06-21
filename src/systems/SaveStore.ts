@@ -7,6 +7,8 @@ export interface SaveData {
   stash: ItemInstance[]
   equipped?: ItemInstance
   coins?: number
+  stashCoins?: number
+  chips?: number
   ammo?: { fire?: number; electro?: number; plasma?: number }
   statPoints?: number
   statLevels?: Partial<Record<string, number>>

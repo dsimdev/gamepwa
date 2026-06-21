@@ -7,7 +7,8 @@ import { GameState } from '../systems/GameState'
 import { WEAPONS } from '../data/weapons'
 import { isUnbreakable } from '../items/types'
 import { addLabel, COLORS, CSS } from '../ui/theme'
-import { ELEMENT_CSS, ELEMENT_NAMES } from '../data/elements'
+import { ELEMENT_CSS, ELEMENT_COLORS, ELEMENT_NAMES } from '../data/elements'
+import type { ElementType } from '../data/elements'
 import { STAT_DEFS, STAT_KEYS } from '../data/playerStats'
 import type { ItemInstance } from '../items/types'
 import type { StatKey } from '../data/playerStats'
@@ -29,9 +30,8 @@ export class UIScene extends Phaser.Scene {
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
   private levelText!: Phaser.GameObjects.Text
-  private coinsText!: Phaser.GameObjects.Text
+  private chipsText!: Phaser.GameObjects.Text
   private pointsText!: Phaser.GameObjects.Text
-  private equipText!: Phaser.GameObjects.Text
   private lastHp = -1
   private lastLevel = -1
 
@@ -62,15 +62,14 @@ export class UIScene extends Phaser.Scene {
     this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 6, MANA_BAR_W, MANA_BAR_H, COLORS.manaDim).setOrigin(0, 0)
     this.manaBar = this.add.rectangle(MARGIN, MARGIN + HEART_SIZE + 6, MANA_BAR_W, MANA_BAR_H, COLORS.mana).setOrigin(0, 0)
 
-    this.levelText  = addLabel(this, width - 8, 10,  'Lv 1',  16, CSS.yellow).setOrigin(1, 0)
-    this.coinsText  = addLabel(this, width - 8, 30, '◈ 0',    14, CSS.yellow).setOrigin(1, 0)
-    this.pointsText = addLabel(this, width - 8, 48, '',        14, CSS.yellow).setOrigin(1, 0)
+    this.levelText  = addLabel(this, width - 8, 10, 'Lv 1',  16, CSS.yellow).setOrigin(1, 0)
+    this.chipsText  = addLabel(this, width - 8, 30, '⬡ 0',   14, CSS.cyan).setOrigin(1, 0)
+    this.pointsText = addLabel(this, width - 8, 48, '',       14, CSS.yellow).setOrigin(1, 0)
 
     this.addTextButton(width - 8, 68,  '[BAG]',   () => this.togglePanel('bag'))
     this.addTextButton(width - 8, 88,  '[STATS]', () => this.togglePanel('stats'))
     if (this.mode !== 'run') this.addTextButton(width - 8, 108, '[BAÚL]', () => this.togglePanel('stash'))
 
-    this.equipText = addLabel(this, MARGIN, this.scale.height - 14, '', 16, CSS.light).setOrigin(0, 1)
     addLabel(this, this.scale.width / 2, 8, this.info, 14, CSS.light).setOrigin(0.5, 0)
 
 
@@ -113,19 +112,10 @@ export class UIScene extends Phaser.Scene {
       this.levelText.setText(`Lv ${this.player.level}`)
     }
 
-    this.coinsText.setText(`◈ ${GameState.coins}`)
+    this.chipsText.setText(`⬡ ${GameState.chips}`)
 
     const pts = GameState.statPoints
     this.pointsText.setText(pts > 0 ? `★ ${pts} pts` : '')
-
-    const item = this.player.equippedItem
-    const def = WEAPONS[item.key]
-    const el = def?.element
-    const elColor = el ? ELEMENT_CSS[el] : CSS.light
-    const ammoStr = el ? `  ◆ ${GameState.ammo[el]}` : ''
-    const combatStr = this.player.inCombat ? '  ⚔' : ''
-    this.equipText.setColor(elColor)
-    this.equipText.setText(`A: ${this.itemLabel(item)}${ammoStr}${combatStr}`)
   }
 
   private itemLabel(item: ItemInstance): string {
@@ -176,16 +166,21 @@ export class UIScene extends Phaser.Scene {
         `◆ ${GameState.coins} coins (se pierden al morir)`, 12, '#e74c3c').setOrigin(0, 0)
       ammoObjs.push(coinsLbl)
       // Munición disponible por elemento
-      const els: Array<import('../data/elements').ElementType> = ['fire', 'electro', 'plasma']
+      const els: Array<ElementType> = ['fire', 'electro', 'plasma']
       els.forEach((el, i) => {
         const lbl = addLabel(this, 28 + i * (width - 56) / 2.5, 76,
           `${ELEMENT_NAMES[el]}: ${GameState.ammo[el]}`, 12, ELEMENT_CSS[el]).setOrigin(0, 0)
         ammoObjs.push(lbl)
       })
+    } else {
+      // Baúl: mostrar coins en banco
+      const bancoLbl = addLabel(this, 28, 60,
+        `◆ ${GameState.stashCoins} coins en banco`, 12, CSS.yellow).setOrigin(0, 0)
+      ammoObjs.push(bancoLbl)
     }
 
     const rows: Phaser.GameObjects.GameObject[] = []
-    const itemsStartY = isBag ? 100 : 68
+    const itemsStartY = isBag ? 100 : 86
     if (items.length === 0) {
       rows.push(addLabel(this, width / 2, itemsStartY, 'Vacío', 16, CSS.dim).setOrigin(0.5, 0))
     } else {
@@ -251,13 +246,13 @@ export class UIScene extends Phaser.Scene {
     const invested = Object.values(GameState.statLevels).reduce((s, v) => s + (v ?? 0), 0)
     if (invested > 0) {
       const cost = GameState.statResetCost
-      const canAfford = GameState.coins >= cost
-      const resetLbl = `[RESET — ${cost} ◈]`
+      const canAfford = GameState.stashCoins >= cost
+      const resetLbl = `[RESET — ${cost} ◈ banco]`
       const resetBtn = addLabel(this, width / 2, height - 52, resetLbl, 14, canAfford ? CSS.yellow : CSS.dim)
         .setOrigin(0.5, 0)
         .setInteractive({ useHandCursor: canAfford })
         .on(Phaser.Input.Events.POINTER_DOWN, () => {
-          if (!GameState.resetStats()) { this.showToast('Monedas insuficientes'); return }
+          if (!GameState.resetStats()) { this.showToast('Coins en banco insuficientes'); return }
           this.player.scene.events.emit('statschanged')
           this.buildStatsPanel()
         })
@@ -329,9 +324,23 @@ export class UIScene extends Phaser.Scene {
   private setupTouchControls() {
     const { width, height } = this.scale
     new VirtualJoystick(this, (x, y) => this.registry.set(INPUT_KEYS.move, { x, y }))
-    new ActionButton(this, width - 40, height - 36, COLORS.neonMagenta, 'A',
-      () => this.registry.set(INPUT_KEYS.attack, true),
-      () => this.registry.set(INPUT_KEYS.attack, false))
+
+    // 3 skills en triángulo — bottom right
+    const skills: [ElementType, string][] = [
+      ['fire',    '🔥'],
+      ['electro', '⚡'],
+      ['plasma',  '💜'],
+    ]
+    const bx = width - 68
+    const by = height - 68
+    const offsets: [number, number][] = [[-58, 0], [0, 0], [-29, -58]]
+    skills.forEach(([el, emoji], i) => {
+      const [dx, dy] = offsets[i]
+      new ActionButton(this, bx + dx, by + dy, ELEMENT_COLORS[el], emoji,
+        () => this.player.scene.events.emit('useSkill', el),
+        () => {}
+      )
+    })
   }
 
   private drawHealth(current: number, max: number) {

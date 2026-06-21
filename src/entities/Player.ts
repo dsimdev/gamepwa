@@ -90,12 +90,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
       else if (move.x > 0) this.setFlipX(false)
     }
 
-    if (this.inputManager.attackDown) this.tryAttack()
-
     this.setAlpha(this.scene.time.now < this.invulnUntil ? 0.5 : 1)
   }
 
-  private tryAttack(): void {
+  /** Llamado por GameScene cuando hay un enemigo en rango (auto-ataque por proximidad). */
+  triggerAttack(): void {
     const now = this.scene.time.now
     if (now < this.nextAttackAt) return
 
