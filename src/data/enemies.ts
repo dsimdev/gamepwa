@@ -75,6 +75,22 @@ export const ENEMIES: Record<string, EnemyDef> = {
     color: 0x88bb44,
     size: 22,
   },
+  ow_guard: {
+    key: 'mage',             // reutiliza textura/color de Torreta
+    name: 'Guardia',
+    hp: 4,
+    speed: 24,
+    contactDamage: 1,
+    behavior: 'neutral',     // neutral hasta ser atacado o defender terminal
+    xpReward: 6,
+    color: 0xffa600,
+    size: 24,
+    shootRange: 160,
+    shootCooldownMs: 1600,
+    projectileDamage: 1,
+    resistances: { fire: 0.4 },
+    weaknesses: { electro: 1.5 },
+  },
   miniboss: {
     key: 'miniboss',
     name: 'Centinela',

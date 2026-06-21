@@ -277,8 +277,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       const x = Phaser.Math.Between(WALL + 30, OW_W - WALL - 30)
       const y = Phaser.Math.Between(WALL + 30, OW_H - WALL - 30)
       if (Math.abs(x - bx) < safeDist && Math.abs(y - by) < safeDist) continue
-      // 35% Torretas (ranged), 65% Rebuscadores (melee neutral)
-      const defKey = Math.random() < 0.35 ? 'mage' : 'scavenger'
+      // 35% Guardias neutrales (ranged), 65% Rebuscadores neutrales (melee)
+      const defKey = Math.random() < 0.35 ? 'ow_guard' : 'scavenger'
       const enemy = new Enemy(this, x, y, ENEMIES[defKey], this, scale)
       enemy.onDeath = e => {
         this.player.gainXp(e.xpReward)
@@ -585,6 +585,19 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
   }
 
+  // --- Mobs defensores de terminal ---
+
+  private provokeMobsNearTerminal(t: { x: number; y: number }): void {
+    const defenseRange = 220
+    for (const c of this.enemies.getChildren()) {
+      const e = c as Enemy
+      if (e.isDead) continue
+      if (Phaser.Math.Distance.Between(e.x, e.y, t.x, t.y) <= defenseRange) {
+        e.provoked = true
+      }
+    }
+  }
+
   // --- Zona segura de base ---
 
   private enforceBaseExclusion(): void {
@@ -693,6 +706,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.activeFarmIdx = nearIdx
       this.farmProgress = 0
       const t = this.terminals[nearIdx]
+      // Mobs cercanos defienden la terminal al iniciar el farmeo
+      this.provokeMobsNearTerminal(t)
       const bw = 52
       this.farmProgressBg = this.add.rectangle(t.x, t.y - 36, bw, 6, 0x112233)
       this.farmProgressBar = this.add.rectangle(t.x - bw / 2, t.y - 36, 0, 6, 0x00aaff).setOrigin(0, 0.5)
@@ -1059,7 +1074,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     addLabel(this, W / 2, H / 2 - 80, 'MORISTE', 32, CSS.red).setOrigin(0.5).setScrollFactor(0).setDepth(3000)
     this.time.delayedCall(1400, () => {
       GameState.clearBag()
-      GameState.coins = 0  // coins no guardadas en stash se pierden al morir
+      GameState.coins = 0   // coins del bolsillo se pierden al morir
+      GameState.chips = 0   // chips también se pierden al morir
       GameState.persist()
       GameState.lastOutcome = 'death'
       this.switchScene('overworld')
