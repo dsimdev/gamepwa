@@ -32,10 +32,13 @@ const OW_H = 1280
 const DUNGEON_CHIP_COST = 5
 const TERMINAL_FARM_MS = 3000
 const TERMINAL_RANGE = 52
-const BASE_EXCL_R = 110  // radio de exclusión de la base (>= inBase radius 90)
+const BASE_EXCL_R = 110
+const ELITE_CHANCE = 0.28   // 28% de cada mob en dungeon es élite
 
 type Mode = 'overworld' | 'run'
 type PortalKind = 'dungeon' | 'overworld' | 'stash'
+type EliteMod = 'armored' | 'swift' | 'explosive'
+const ELITE_MODS: EliteMod[] = ['armored', 'swift', 'explosive']
 
 export class GameScene extends Phaser.Scene implements CombatContext, EnemyContext {
   private mode: Mode = 'overworld'
@@ -76,6 +79,17 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private farmProgressBar?: Phaser.GameObjects.Rectangle
   private farmProgressBg?: Phaser.GameObjects.Rectangle
   private lastPlayerHp = -1
+  private wasInBase = false
+
+  // Trampas (dungeon)
+  private traps: Array<{
+    bg: Phaser.GameObjects.Rectangle
+    lbl: Phaser.GameObjects.Text
+    timer: Phaser.Time.TimerEvent
+  }> = []
+
+  // Boss aura
+  private bossAuraTimer?: Phaser.Time.TimerEvent
 
   constructor() {
     super({ key: 'GameScene' })
@@ -93,6 +107,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.farmProgressBar = undefined
     this.farmProgressBg = undefined
     this.lastPlayerHp = -1
+    this.wasInBase = false
+    this.traps = []
+    this.bossAuraTimer = undefined
   }
 
   create() {
@@ -240,8 +257,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     ]
     for (const [x, y, w, h] of rocks) this.addWall(x, y, w, h)
 
-    // Mobs — atacan al jugador; su presencia interrumpe el farmeo de terminales
+    // Mobs — neutrales; se provocan al ser atacados o al farmear terminal
     this.spawnOverworldMobs()
+
+    // Centinela: siempre agresivo, patrulla el overworld
+    this.spawnOverworldSentinel()
 
     // Respawn de mobs cada 25s hasta mantener presión
     this.time.addEvent({
@@ -289,6 +309,140 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
   }
 
+  private spawnOverworldSentinel(): void {
+    const scale = this.difficultyScale()
+    const sentinel = new Enemy(this, OW_W * 0.18, OW_H * 0.22, ENEMIES['miniboss'], this, scale)
+    sentinel.onDeath = e => {
+      this.player.gainXp(e.xpReward * 2)
+      this.maybeDropLoot(e.x, e.y)
+      this.events.emit('toast', 'Centinela abatido')
+      this.time.delayedCall(90_000, () => {
+        if (this.mode === 'overworld') this.spawnOverworldSentinel()
+      })
+    }
+    this.enemies.add(sentinel)
+  }
+
+  private resetEnemiesOnBaseEnter(): void {
+    for (const c of this.enemies.getChildren()) {
+      const e = c as Enemy
+      if (e.isDead) continue
+      e.provoked = false
+      e.health.add(e.health.max)  // curar a full: se "retiraron del combate"
+    }
+  }
+
+  // ─── Élites ──────────────────────────────────────────────────────────────────
+
+  private applyEliteMod(enemy: Enemy, mod: EliteMod): void {
+    switch (mod) {
+      case 'armored':
+        enemy.bonusResistance = 0.38
+        enemy.eliteTintColor = 0x8899ff  // azul plateado
+        break
+      case 'swift':
+        // speed ya aplicado en def clonado — solo tinte
+        enemy.eliteTintColor = 0xffdd22  // amarillo
+        break
+      case 'explosive': {
+        enemy.eliteTintColor = 0xff5522  // rojo naranja
+        const prev = enemy.onDeath
+        enemy.onDeath = (e) => {
+          prev?.(e)
+          if (!this.player.isDead) {
+            const dist = Phaser.Math.Distance.Between(e.x, e.y, this.player.x, this.player.y)
+            if (dist < 84) this.player.takeDamage(2)
+          }
+          this.showAoeEffect(e.x, e.y, 84, 0xff4400)
+          this.events.emit('toast', 'BOOM')
+        }
+        break
+      }
+    }
+    if (enemy.eliteTintColor) enemy.setTint(enemy.eliteTintColor)
+  }
+
+  // ─── Trampas ─────────────────────────────────────────────────────────────────
+
+  private spawnTraps(): void {
+    const count = Phaser.Math.Between(1, 2)
+    for (let i = 0; i < count; i++) {
+      const tx = Phaser.Math.Between(WALL + 28, W - WALL - 28)
+      const ty = Phaser.Math.Between(WALL + 36, H - WALL - 36)
+      // Evitar zona de spawn central
+      if (Math.abs(tx - W / 2) < 48 && Math.abs(ty - H / 2) < 48) continue
+      this.addTrap(tx, ty)
+    }
+  }
+
+  private addTrap(x: number, y: number): void {
+    const SIZE = 26
+    const bg = this.add.rectangle(x, y, SIZE, SIZE, 0xff3300, 0.22)
+      .setStrokeStyle(2, 0xff3300, 0.9)
+    const lbl = addLabel(this, x, y, '!', 14, '#ff4400').setOrigin(0.5, 0.5)
+
+    this.tweens.add({ targets: bg, alpha: 0.62, duration: 550, yoyo: true, repeat: -1 })
+
+    const timer = this.time.addEvent({
+      delay: 1400,
+      loop: true,
+      callback: () => {
+        if (this.player.isDead || !bg.active) return
+        if (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < SIZE) {
+          this.player.takeDamage(1)
+          // Destello de activación
+          const g = this.add.graphics()
+          g.fillStyle(0xff3300, 0.55).fillCircle(x, y, SIZE)
+          this.time.delayedCall(180, () => g.destroy())
+          this.events.emit('toast', 'Trampa')
+        }
+      },
+    })
+
+    this.traps.push({ bg, lbl, timer })
+  }
+
+  // ─── Boss aura ────────────────────────────────────────────────────────────────
+
+  private startBossAura(): void {
+    this.bossAuraTimer = this.time.addEvent({
+      delay: 2800,
+      loop: true,
+      callback: () => this.pulseBossAura(),
+    })
+  }
+
+  private pulseBossAura(): void {
+    if (!this.boss || this.boss.isDead) { this.clearBossAura(); return }
+    const bx = this.boss.x
+    const by = this.boss.y
+    const g = this.add.graphics()
+    const state = { r: 0 }
+    const maxR = 155
+    let hit = false
+
+    this.tweens.add({
+      targets: state,
+      r: maxR,
+      duration: 950,
+      ease: 'Linear',
+      onUpdate: () => {
+        g.clear()
+        const alpha = 0.72 * (1 - state.r / maxR)
+        g.lineStyle(5, 0xff44aa, alpha)
+        g.strokeCircle(bx, by, state.r)
+        if (!hit && !this.player.isDead) {
+          const pd = Phaser.Math.Distance.Between(this.player.x, this.player.y, bx, by)
+          if (Math.abs(pd - state.r) < 14) {
+            this.player.takeDamage(1)
+            hit = true
+          }
+        }
+      },
+      onComplete: () => g.destroy(),
+    })
+  }
+
   private showCenterText(text: string, color: number): void {
     const t = addLabel(this, W / 2, H / 2 - 72, text, 16, `#${color.toString(16).padStart(6, '0')}`)
       .setOrigin(0.5)
@@ -321,7 +475,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (!room.cleared) {
       if (room.type === 'boss') this.spawnBoss()
       else if (room.type === 'miniboss') this.spawnMiniboss()
-      else this.spawnRoomEnemies()
+      else {
+        this.spawnRoomEnemies()
+        this.spawnTraps()
+      }
     }
     // No hay salida al overworld durante el dungeon — solo al completarlo
   }
@@ -334,8 +491,24 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.doorZones = []
     this.portalZones = []
     this.clearBossBar()
+    this.clearBossAura()
+    this.clearTraps()
     this.projectiles.getChildren().forEach(p => (p as Projectile).kill())
     this.enemyProjectiles.getChildren().forEach(p => (p as Projectile).kill())
+  }
+
+  private clearTraps(): void {
+    for (const t of this.traps) {
+      t.bg.destroy()
+      t.lbl.destroy()
+      t.timer.destroy()
+    }
+    this.traps = []
+  }
+
+  private clearBossAura(): void {
+    this.bossAuraTimer?.destroy()
+    this.bossAuraTimer = undefined
   }
 
   private addWall(cx: number, cy: number, w: number, h: number): void {
@@ -410,11 +583,17 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       const key = Phaser.Utils.Array.GetRandom(pool)
       const x = Phaser.Math.Between(WALL + 20, W - WALL - 20)
       const y = Phaser.Math.Between(WALL + 20, H - WALL - 20)
-      const enemy = new Enemy(this, x, y, ENEMIES[key], this, scale)
+      const eliteMod: EliteMod | undefined =
+        Math.random() < ELITE_CHANCE ? Phaser.Utils.Array.GetRandom(ELITE_MODS) : undefined
+      const def = eliteMod === 'swift'
+        ? { ...ENEMIES[key], speed: ENEMIES[key].speed * 1.6 }
+        : ENEMIES[key]
+      const enemy = new Enemy(this, x, y, def, this, scale)
       enemy.onDeath = e => {
         this.player.gainXp(e.xpReward)
         this.maybeDropLoot(e.x, e.y)
       }
+      if (eliteMod) this.applyEliteMod(enemy, eliteMod)
       this.enemies.add(enemy)
     }
   }
@@ -426,6 +605,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.enemies.add(boss)
     this.boss = boss
     this.createBossBar(ENEMIES[bossKey].name)
+    this.startBossAura()
   }
 
   private spawnMiniboss(): void {
@@ -1020,6 +1200,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (this.mode === 'overworld') {
       const bx = OW_W / 2, by = OW_H / 2
       this.player.inBase = Phaser.Math.Distance.Between(this.player.x, this.player.y, bx, by) < 90
+      // Al entrar a la base: mobs se desprovoan y se curan
+      if (this.player.inBase && !this.wasInBase) this.resetEnemiesOnBaseEnter()
+      this.wasInBase = this.player.inBase
     } else {
       this.player.inBase = false
     }
