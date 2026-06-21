@@ -40,9 +40,9 @@ const config: Phaser.Types.Core.GameConfig = {
 
 new Phaser.Game(config)
 
-// Chequea nuevo SW cada 30 s para que las actualizaciones lleguen rápido
+// Chequea nuevo SW cada 10 minutos (no más frecuente — cada check descarga el bundle entero)
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.ready.then(reg => {
-    setInterval(() => reg.update(), 30_000)
+    setInterval(() => reg.update(), 10 * 60_000)
   })
 }

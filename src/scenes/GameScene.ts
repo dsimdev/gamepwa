@@ -111,6 +111,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private skillCdUntil: Record<SkillType, number> = { attack: 0, defense: 0, special: 0 }
   private lifeStealUntil = 0
   private shieldRing?: Phaser.GameObjects.Graphics
+  private shieldRingVisible = false
 
   constructor() {
     super({ key: 'GameScene' })
@@ -164,8 +165,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.add.rectangle(worldW / 2, worldH / 2, worldW, worldH, floorColor).setDepth(-10)
     this.physics.world.setBounds(0, 0, worldW, worldH)
 
-    this.projectiles = this.physics.add.group({ classType: Projectile, maxSize: 32, runChildUpdate: true })
-    this.enemyProjectiles = this.physics.add.group({ classType: Projectile, maxSize: 48, runChildUpdate: true })
+    this.projectiles = this.physics.add.group({ classType: Projectile, maxSize: 16, runChildUpdate: true })
+    this.enemyProjectiles = this.physics.add.group({ classType: Projectile, maxSize: 24, runChildUpdate: true })
     this.enemies = this.physics.add.group()
     this.pickups = this.physics.add.group()
     this.walls = this.physics.add.staticGroup()
@@ -333,7 +334,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private spawnOverworldMobs(count?: number): void {
     const scale = this.difficultyScale()
-    const n = count ?? (8 + Math.min(4, GameState.depth))
+    const n = count ?? (5 + Math.min(3, GameState.depth))
     const safeDist = 180
     const bx = OW_W / 2
     const by = OW_H / 2
@@ -1557,20 +1558,24 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.player.update(time, delta)
     this.enemies.getChildren().forEach(child => (child as Enemy).update(this.player, time, delta))
 
-    // Zona segura de base (overworld): mobs y proyectiles no pueden entrar
+    // Overworld: checks que no necesitan 60fps
     if (this.mode === 'overworld') {
-      // Excluir mobs de zonas seguras cada 3 frames (no necesita 60fps)
-      if (++this.safeZoneFrame % 3 === 0) this.enforceSafeZones()
+      ++this.safeZoneFrame
+      if (this.safeZoneFrame % 3 === 0) this.enforceSafeZones()
+      if (this.safeZoneFrame % 6 === 0) this.checkBuildingEntry()
       this.updateTerminals(delta)
-      this.checkBuildingEntry()
     }
 
-    // Escudo de plasma — anillo visual que sigue al jugador
+    // Escudo de plasma — solo redibuja cuando hay cambio (evita Graphics.clear() cada frame)
     if (this.shieldRing) {
-      this.shieldRing.clear()
-      if (this.player.shieldHp > 0) {
-        this.shieldRing.lineStyle(3, 0xaa44ff, 0.75)
-        this.shieldRing.strokeCircle(this.player.x, this.player.y, 36)
+      const hasShield = this.player.shieldHp > 0
+      if (hasShield !== this.shieldRingVisible || hasShield) {
+        this.shieldRing.clear()
+        if (hasShield) {
+          this.shieldRing.lineStyle(3, 0xaa44ff, 0.75)
+          this.shieldRing.strokeCircle(this.player.x, this.player.y, 36)
+        }
+        this.shieldRingVisible = hasShield
       }
     }
 
