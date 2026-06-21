@@ -32,7 +32,6 @@ export class UIScene extends Phaser.Scene {
   private manaBar!: Phaser.GameObjects.Rectangle
   private xpBar!: Phaser.GameObjects.Rectangle
   private levelText!: Phaser.GameObjects.Text
-  private chipsText!: Phaser.GameObjects.Text
   private pointsText!: Phaser.GameObjects.Text
   private lastHp    = -1
   private lastLevel = -1
@@ -70,8 +69,7 @@ export class UIScene extends Phaser.Scene {
 
     // HUD labels top-right
     this.levelText  = addLabel(this, width - 8, 10, 'Lv 1', 16, CSS.yellow).setOrigin(1, 0)
-    this.chipsText  = addLabel(this, width - 8, 30, '⬡ 0',  14, CSS.cyan).setOrigin(1, 0)
-    this.pointsText = addLabel(this, width - 8, 48, '',      14, CSS.yellow).setOrigin(1, 0)
+    this.pointsText = addLabel(this, width - 8, 28, '',      14, CSS.yellow).setOrigin(1, 0)
 
     // Info label (biome / mode)
     addLabel(this, width / 2, 8, this.info, 14, CSS.light).setOrigin(0.5, 0)
@@ -205,8 +203,8 @@ export class UIScene extends Phaser.Scene {
     const extras: Phaser.GameObjects.GameObject[] = []
     if (isBag) {
       extras.push(
-        addLabel(this, 20, 62, `◆ ${GameState.coins} coins  (se pierden al morir)`, 12, '#e74c3c').setOrigin(0, 0),
-        addLabel(this, 20, 78, `⬡ ${GameState.chips} chips  (se pierden al morir)`, 12, CSS.cyan).setOrigin(0, 0),
+        addLabel(this, 20, 62, `◆ ${GameState.coins} coins`, 12, '#e74c3c').setOrigin(0, 0),
+        addLabel(this, 20, 78, `⬡ ${GameState.chips} chips`, 12, CSS.cyan).setOrigin(0, 0),
       )
       const els: ElementType[] = ['fire', 'electro', 'plasma']
       const elW = (width - 40) / 3
@@ -364,7 +362,6 @@ export class UIScene extends Phaser.Scene {
       this.levelText.setText(`Lv ${this.player.level}`)
     }
 
-    this.chipsText.setText(`⬡ ${GameState.chips}`)
     const pts = GameState.statPoints
     this.pointsText.setText(pts > 0 ? `★ ${pts}` : '')
   }
