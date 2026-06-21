@@ -8,7 +8,7 @@ import { GameState, STAT_POINTS_PER_LEVEL } from '../systems/GameState'
 import { ENEMIES } from '../data/enemies'
 import { WEAPONS, LOOTABLE_WEAPONS } from '../data/weapons'
 import { ELEMENT_COLORS, ELEMENT_NAMES } from '../data/elements'
-import { makeItem, KNIFE_KEY } from '../items/types'
+import { makeItem, KNIFE_KEY, isUnbreakable } from '../items/types'
 import { BIOMES, BIOME_KEYS } from '../data/biomes'
 import { generateDungeon } from '../dungeon/DungeonGenerator'
 import type { BiomeDef } from '../data/biomes'
@@ -204,9 +204,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     // Al romperse el arma: el equipo pasó a puños; persistir y avisar
     this.events.off('weaponbroke')
     this.events.on('weaponbroke', (name: string) => {
-      GameState.equipped = this.player.equippedItem
-      GameState.persist()
-      this.events.emit('toast', `${name} se rompió`)
+      // Player ya equipó el cuchillo base — intentamos reemplazarlo con algo mejor de la bag
+      this.autoEquipBest(`${name} rota`)
     })
 
     // Skills: botones ATK / DEF / ESP en UIScene
@@ -1300,51 +1299,58 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private autoUnequipRanged(element: ElementType): void {
     const equipped = this.player.equippedItem
-    const def = WEAPONS[equipped.key]
-    if (def?.element !== element) return
-
-    GameState.addToBag(equipped)
-
-    // Busca en la bag la mejor arma ranged con munición según los enemigos en pantalla
-    const suggested = this.suggestWeapon()
-    const next = suggested ?? makeItem(KNIFE_KEY)
-    if (suggested) {
-      const idx = GameState.bag.findIndex(i => i === suggested)  // ref exacta
-      if (idx >= 0) GameState.bag.splice(idx, 1)
-    }
-    this.player.equip(next)
-    GameState.equipped = next
-    GameState.persist()
+    if (WEAPONS[equipped.key]?.element !== element) return
     const elName = ELEMENT_NAMES[element] ?? element
-    const nextName = WEAPONS[next.key]?.name ?? 'Filo Nano'
-    const msg = suggested
-      ? `Sin ${elName} → ${nextName} equipado`
-      : `Sin ${elName} → sin alternativas, usando ${nextName}`
-    this.events.emit('toast', msg)
+    GameState.addToBag(equipped)
+    this.autoEquipBest(`Sin ${elName}`)
   }
 
   private suggestWeapon(): import('../items/types').ItemInstance | undefined {
     const liveEnemies = this.enemies.getChildren().filter(e => !(e as Enemy).isDead) as Enemy[]
 
-    // Puntúa cada arma ranged en bag con ammo según debilidad de los enemigos presentes
-    let bestScore = -Infinity
-    let bestItem: import('../items/types').ItemInstance | undefined
+    let bestRangedScore = -Infinity
+    let bestRanged: import('../items/types').ItemInstance | undefined
+    let bestMelee: import('../items/types').ItemInstance | undefined
 
     for (const item of GameState.bag) {
       const d = WEAPONS[item.key]
-      if (!d?.element || GameState.ammo[d.element] <= 0) continue
-      const el = d.element as ElementType
-      let score = 0
-      if (liveEnemies.length > 0) {
-        for (const e of liveEnemies) {
-          score += (e.def.weaknesses?.[el] ?? 1) - (e.def.resistances?.[el] ?? 0)
-        }
+      if (!d) continue
+
+      if (d.element) {
+        // Ranged: solo si tiene ammo
+        if (GameState.ammo[d.element] <= 0) continue
+        const el = d.element as ElementType
+        const score = liveEnemies.length > 0
+          ? liveEnemies.reduce((s, e) => s + (e.def.weaknesses?.[el] ?? 1) - (e.def.resistances?.[el] ?? 0), 0)
+          : 1
+        if (score > bestRangedScore) { bestRangedScore = score; bestRanged = item }
       } else {
-        score = 1 // sin enemigos: cualquier arma con ammo vale
+        // Melee: preferir la de mayor daño base
+        if (!bestMelee || d.damage > (WEAPONS[bestMelee.key]?.damage ?? 0)) bestMelee = item
       }
-      if (score > bestScore) { bestScore = score; bestItem = item }
     }
-    return bestItem
+
+    // Ranged con ammo primero; si no hay, mejor melee de la bag
+    return bestRanged ?? bestMelee
+  }
+
+  private autoEquipBest(reason: string): void {
+    const suggested = this.suggestWeapon()
+    if (!suggested) {
+      this.events.emit('toast', `${reason} — sin alternativas`)
+      return
+    }
+    const idx = GameState.bag.findIndex(i => i === suggested)
+    if (idx >= 0) GameState.bag.splice(idx, 1)
+    // El arma actual vuelve a la bag si hay espacio (y no es el cuchillo base)
+    const prev = this.player.equippedItem
+    if (!isUnbreakable(prev.key) && (prev.durability ?? 1) > 0) {
+      GameState.addToBag(prev)
+    }
+    this.player.equip(suggested)
+    GameState.equipped = suggested
+    GameState.persist()
+    this.events.emit('toast', `${reason} → ${WEAPONS[suggested.key]?.name ?? suggested.key}`)
   }
 
   spawnPlayerProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number, element?: ElementType): void {
