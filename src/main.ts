@@ -13,7 +13,7 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 360,
-    height: 640,
+    height: 760,
   },
   input: {
     activePointers: 3,  // multi-touch: joystick + skill + skill simultáneos

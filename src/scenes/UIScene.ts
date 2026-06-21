@@ -26,7 +26,6 @@ const PANEL_RATIO = 0.74   // el panel ocupa el 74% de la altura de pantalla
 
 export class UIScene extends Phaser.Scene {
   private player!: Player
-  private mode: 'overworld' | 'run' = 'run'
   private info = ''
 
   private hearts: Phaser.GameObjects.GameObject[] = []
@@ -50,7 +49,6 @@ export class UIScene extends Phaser.Scene {
 
   init(data: { player: Player; mode?: 'overworld' | 'run'; info?: string }) {
     this.player    = data.player
-    this.mode      = data.mode ?? 'run'
     this.info      = data.info ?? ''
     this.lastLevel = -1
     this.lastHp    = -1
@@ -183,15 +181,6 @@ export class UIScene extends Phaser.Scene {
     const pH = this.panelH
     const isBag = this.panelKind === 'bag'
 
-    if (!isBag && this.mode === 'run') {
-      // Baúl no disponible en dungeon
-      const bg   = this.add.rectangle(0, 0, width, pH, 0x0a0a18, 0.97).setOrigin(0, 0)
-      const hdl  = this.makeHandle(width)
-      const msg  = addLabel(this, width / 2, pH / 2, 'Solo disponible en el overworld', 14, CSS.dim).setOrigin(0.5, 0.5)
-      this.panel = this.add.container(0, this.panelOpenY, [bg, hdl, msg]).setDepth(5000)
-      return
-    }
-
     const items = isBag ? GameState.bag : GameState.stash
     const title = isBag
       ? `BAG  ${items.length}/${GameState.bagCapacity}`
@@ -214,10 +203,60 @@ export class UIScene extends Phaser.Scene {
         extras.push(addLabel(this, 20 + i * elW, 94, `${ELEMENT_NAMES[el]}: ${GameState.ammo[el]}`, 12, ELEMENT_CSS[el]).setOrigin(0, 0))
       })
     } else {
-      extras.push(addLabel(this, 20, 62, `◆ ${GameState.stashCoins} coins en banco`, 12, CSS.yellow).setOrigin(0, 0))
+      // BAÚL: coins y chips con botones depositar/retirar; solo activos en base
+      const inBase = this.player.inBase
+      const btnColor = (active: boolean) => active ? CSS.yellow : CSS.dim
+
+      // Fila coins
+      extras.push(addLabel(this, 20, 62, `◆ ${GameState.stashCoins} coins banco`, 12, CSS.yellow).setOrigin(0, 0))
+      const depCoins = addLabel(this, width - 110, 62, '[DEPOSITAR]', 11, btnColor(inBase && GameState.coins > 0))
+        .setOrigin(0, 0)
+      if (inBase && GameState.coins > 0) {
+        depCoins.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
+          const n = GameState.depositCoins()
+          this.showToast(`Depositadas ${n} ◆ coins`)
+          this.refreshPanel()
+        })
+      }
+      const witCoins = addLabel(this, width - 10, 62, '[RETIRAR]', 11, btnColor(inBase && GameState.stashCoins > 0))
+        .setOrigin(1, 0)
+      if (inBase && GameState.stashCoins > 0) {
+        witCoins.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
+          const n = GameState.withdrawCoins()
+          this.showToast(`Retiradas ${n} ◆ coins`)
+          this.refreshPanel()
+        })
+      }
+      extras.push(depCoins, witCoins)
+
+      // Fila chips
+      extras.push(addLabel(this, 20, 80, `⬡ ${GameState.stashChips} chips banco`, 12, CSS.cyan).setOrigin(0, 0))
+      const depChips = addLabel(this, width - 110, 80, '[DEPOSITAR]', 11, btnColor(inBase && GameState.chips > 0))
+        .setOrigin(0, 0)
+      if (inBase && GameState.chips > 0) {
+        depChips.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
+          const n = GameState.depositChips()
+          this.showToast(`Depositados ${n} ⬡ chips`)
+          this.refreshPanel()
+        })
+      }
+      const witChips = addLabel(this, width - 10, 80, '[RETIRAR]', 11, btnColor(inBase && GameState.stashChips > 0))
+        .setOrigin(1, 0)
+      if (inBase && GameState.stashChips > 0) {
+        witChips.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
+          const n = GameState.withdrawChips()
+          this.showToast(`Retirados ${n} ⬡ chips`)
+          this.refreshPanel()
+        })
+      }
+      extras.push(depChips, witChips)
+
+      if (!inBase) {
+        extras.push(addLabel(this, width / 2, 98, 'Acercate a la BASE para depositar/retirar', 10, CSS.dim).setOrigin(0.5, 0))
+      }
     }
 
-    const startY = isBag ? 114 : 84
+    const startY = isBag ? 114 : 110
     const rows: Phaser.GameObjects.GameObject[] = []
     if (items.length === 0) {
       rows.push(addLabel(this, width / 2, startY, 'Vacío', 15, CSS.dim).setOrigin(0.5, 0))
@@ -225,9 +264,13 @@ export class UIScene extends Phaser.Scene {
       items.forEach((item, i) => {
         const def = WEAPONS[item.key]
         const color = def?.element ? ELEMENT_CSS[def.element] : CSS.light
-        const row = addLabel(this, 20, startY + i * 26, `• ${this.itemLabel(item)}`, 14, color)
-          .setOrigin(0, 0).setInteractive({ useHandCursor: true })
-          .on(Phaser.Input.Events.POINTER_DOWN, () => isBag ? this.equipFromBag(i) : this.withdraw(i))
+        const canAct = isBag || this.player.inBase
+        const row = addLabel(this, 20, startY + i * 26, `• ${this.itemLabel(item)}`, 14, canAct ? color : CSS.dim)
+          .setOrigin(0, 0)
+        if (canAct) {
+          row.setInteractive({ useHandCursor: true })
+            .on(Phaser.Input.Events.POINTER_DOWN, () => isBag ? this.equipFromBag(i) : this.withdraw(i))
+        }
         rows.push(row)
       })
     }

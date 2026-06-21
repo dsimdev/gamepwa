@@ -9,6 +9,7 @@ export interface SaveData {
   coins?: number
   stashCoins?: number
   chips?: number
+  stashChips?: number
   ammo?: { fire?: number; electro?: number; plasma?: number }
   statPoints?: number
   statLevels?: Partial<Record<string, number>>

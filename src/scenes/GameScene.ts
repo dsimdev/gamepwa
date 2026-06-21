@@ -21,7 +21,7 @@ import type { ElementType } from '../data/elements'
 const DROP_CHANCE = 0.3
 
 const W = 360
-const H = 640
+const H = 716
 const WALL = 28
 const DOOR_GAP = 80
 const TRANSITION_LOCK_MS = 350
@@ -1037,10 +1037,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.stashCooldownUntil = this.time.now + 800
     const n = GameState.depositBag()
     const banked = GameState.depositCoins()
-    if (n > 0 || banked > 0) {
+    const bankedChips = GameState.depositChips()
+    if (n > 0 || banked > 0 || bankedChips > 0) {
       const parts: string[] = []
       if (n > 0) parts.push(`${n} items`)
-      if (banked > 0) parts.push(`+${banked} ◈ → banco`)
+      if (banked > 0) parts.push(`+${banked} ◈ banco`)
+      if (bankedChips > 0) parts.push(`+${bankedChips} ⬡ banco`)
       this.events.emit('toast', parts.join(' · '))
       this.events.emit('stashed', n)
     }

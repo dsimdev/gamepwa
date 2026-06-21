@@ -21,7 +21,8 @@ class GameStateClass {
 
   coins = 0        // bolsillo — se pierden al morir
   stashCoins = 0   // banco — sobreviven la muerte
-  chips = 0        // chips de acceso al dungeon — se farmean en terminales
+  chips = 0        // bolsillo — se pierden al morir
+  stashChips = 0   // banco — sobreviven la muerte
   ammo: Record<ElementType, number> = { fire: 0, electro: 0, plasma: 0 }
 
   statPoints = 0
@@ -87,6 +88,7 @@ class GameStateClass {
     this.coins = data.coins ?? 0
     this.stashCoins = data.stashCoins ?? 0
     this.chips = data.chips ?? 0
+    this.stashChips = data.stashChips ?? 0
     this.ammo = {
       fire:    data.ammo?.fire    ?? 0,
       electro: data.ammo?.electro ?? 0,
@@ -112,6 +114,7 @@ class GameStateClass {
       coins: this.coins,
       stashCoins: this.stashCoins,
       chips: this.chips,
+      stashChips: this.stashChips,
       ammo: { ...this.ammo },
       statPoints: this.statPoints,
       statLevels: { ...this.statLevels },
@@ -159,6 +162,36 @@ class GameStateClass {
     if (amount <= 0) return 0
     this.stashCoins += amount
     this.coins = 0
+    this.persist()
+    return amount
+  }
+
+  /** Mueve todas las coins del banco al bolsillo. */
+  withdrawCoins(): number {
+    const amount = this.stashCoins
+    if (amount <= 0) return 0
+    this.coins += amount
+    this.stashCoins = 0
+    this.persist()
+    return amount
+  }
+
+  /** Mueve los chips del bolsillo al banco. Devuelve el monto depositado. */
+  depositChips(): number {
+    const amount = this.chips
+    if (amount <= 0) return 0
+    this.stashChips += amount
+    this.chips = 0
+    this.persist()
+    return amount
+  }
+
+  /** Mueve todos los chips del banco al bolsillo. */
+  withdrawChips(): number {
+    const amount = this.stashChips
+    if (amount <= 0) return 0
+    this.chips += amount
+    this.stashChips = 0
     this.persist()
     return amount
   }
@@ -214,6 +247,7 @@ class GameStateClass {
     this.coins = 0
     this.stashCoins = 0
     this.chips = 0
+    this.stashChips = 0
     this.ammo = { fire: 0, electro: 0, plasma: 0 }
     this.statPoints = 0
     this.statLevels = {}
