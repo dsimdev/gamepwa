@@ -19,20 +19,7 @@
         -webkit-user-select: none;
         user-select: none;
       }
-      /* Forzar portrait: rotar el canvas si el dispositivo está en landscape */
-      body {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 100dvh;
-      }
-      canvas {
-        display: block;
-        touch-action: none;
-        /* Phaser Scale.FIT ya maneja el tamaño — solo asegurar que no haya scroll */
-        max-width: 100dvw;
-        max-height: 100dvh;
-      }
+      canvas { display: block; touch-action: none; }
     </style>
   </head>
   <body>

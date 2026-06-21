@@ -15,9 +15,12 @@ const config: Phaser.Types.Core.GameConfig = {
     width: 360,
     height: 640,
   },
+  input: {
+    activePointers: 3,  // multi-touch: joystick + skill + skill simultáneos
+  },
   fps: {
     target: 60,
-    forceSetTimeOut: true,  // más estable en mobile que requestAnimationFrame nativo
+    forceSetTimeOut: true,
   },
   physics: {
     default: 'arcade',

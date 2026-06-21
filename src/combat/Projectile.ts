@@ -10,6 +10,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
   element: ElementType | undefined = undefined
   baseDamage = 0
   pierceCount = 0
+  isRocket = false   // explota en AoE al impactar
   readonly piercedIds = new Set<object>()
   private diesAt = 0
 
@@ -31,6 +32,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
     this.damage = damage
     this.baseDamage = damage
     this.pierceCount = 0
+    this.isRocket = false
     this.piercedIds.clear()
     this.element = element
     if (this.texture.key !== textureKey) this.setTexture(textureKey)

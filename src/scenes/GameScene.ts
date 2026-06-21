@@ -499,7 +499,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       if (type === 'defense') this.skillElectroLifesteal()
       if (type === 'special') this.skillElectroTeleport()
     } else if (el === 'fire') {
-      if (type === 'attack')  this.skillFireBurst()
+      if (type === 'attack')  this.skillFireRocket()
       if (type === 'defense') this.skillFireWall()
       if (type === 'special') this.skillFireDash()
     }
@@ -604,14 +604,29 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   // ─── Fire ────────────────────────────────────────────────────────────────────
 
-  private skillFireBurst(): void {
-    const DMG = (this.player.stats.rangedDamage + this.player.weapon.damage) + 2
-    const angles = [0, -0.22, 0.22]
-    for (const a of angles) {
-      const dir = this.player.facing.clone().rotate(a)
-      this.spawnPlayerProjectile(this.player.x, this.player.y, dir, DMG, 'fire')
+  private skillFireRocket(): void {
+    const DMG = (this.player.stats.rangedDamage + this.player.weapon.damage) + 4
+    const target = this.findFarthestEnemy()
+    const dir = target
+      ? new Phaser.Math.Vector2(target.x - this.player.x, target.y - this.player.y).normalize()
+      : this.player.facing.clone()
+    const p = this.projectiles.get() as Projectile | null
+    if (!p) return
+    p.fire(this.player.x, this.player.y, dir, DMG, 'projectile', 'fire', 340, 2200)
+    p.isRocket = true
+    this.events.emit('toast', 'Cohete fuego')
+  }
+
+  private findFarthestEnemy(): Enemy | null {
+    let farthest: Enemy | null = null
+    let maxDist = -1
+    for (const c of this.enemies.getChildren()) {
+      const e = c as Enemy
+      if (e.isDead) continue
+      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y)
+      if (d > maxDist) { maxDist = d; farthest = e }
     }
-    this.events.emit('toast', 'Burst fuego')
+    return farthest
   }
 
   private skillFireWall(): void {
@@ -1372,16 +1387,17 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void {
-    let didHit = false
+    let hitCount = 0
     this.enemies.getChildren().forEach(child => {
       const enemy = child as Enemy
       if (enemy.isDead) return
       if (Phaser.Geom.Intersects.RectangleToRectangle(rect, enemy.getBounds())) {
         enemy.takeDamage(damage, from)
-        didHit = true
+        hitCount++
       }
     })
-    if (didHit && this.time.now < this.lifeStealUntil) this.player.health.add(1)
+    // Lifesteal: cura 1 por cada enemigo golpeado en el swing
+    if (hitCount > 0 && this.time.now < this.lifeStealUntil) this.player.health.add(hitCount)
   }
 
   spawnEnemyProjectile(x: number, y: number, dir: Phaser.Math.Vector2, damage: number): void {
@@ -1422,11 +1438,32 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       return  // el rayo sigue viajando
     }
 
+    // Rocket de fuego: explota en AoE al impactar
+    if (p.isRocket) {
+      const AOE_R = 72
+      const aoeDmg = Math.max(1, Math.round(p.damage * 0.55))
+      e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), 'fire')
+      this.showAoeEffect(p.x, p.y, AOE_R, ELEMENT_COLORS.fire)
+      for (const c of this.enemies.getChildren()) {
+        const o = c as Enemy
+        if (o !== e && !o.isDead && Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y) <= AOE_R) {
+          o.takeDamage(aoeDmg, new Phaser.Math.Vector2(p.x, p.y), 'fire')
+        }
+      }
+      if (p.element && GameState.consumeAmmo(p.element) && GameState.ammo[p.element] === 0) {
+        this.time.delayedCall(0, () => this.autoUnequipRanged(p.element!))
+      }
+      if (this.time.now < this.lifeStealUntil) this.player.health.add(1)
+      p.kill()
+      return
+    }
+
     e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), p.element)
 
     if (p.element === 'electro') {
       const chainR = 120
       const chainDmg = Math.max(1, Math.round(p.damage * 0.65))
+      let chainHits = 0
       this.enemies.getChildren().forEach(other => {
         const o = other as Enemy
         if (o !== e && !o.isDead) {
@@ -1434,20 +1471,22 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
           if (dist <= chainR) {
             o.takeDamage(chainDmg, new Phaser.Math.Vector2(e.x, e.y), 'electro')
             this.showChainEffect(e.x, e.y, o.x, o.y)
+            chainHits++
           }
         }
       })
+      // Lifesteal: 1 por el golpe primario + 1 por cada cadena
+      if (this.time.now < this.lifeStealUntil) this.player.health.add(1 + chainHits)
+    } else {
+      if (this.time.now < this.lifeStealUntil) this.player.health.add(1)
     }
 
-    // Descuenta 1 ammo al golpear (fuego y electro)
+    // Descuenta 1 ammo al golpear
     if (p.element) {
       if (GameState.consumeAmmo(p.element) && GameState.ammo[p.element] === 0) {
         this.time.delayedCall(0, () => this.autoUnequipRanged(p.element!))
       }
     }
-
-    // Lifesteal (skill electro def)
-    if (this.time.now < this.lifeStealUntil) this.player.health.add(1)
 
     p.kill()
   }
