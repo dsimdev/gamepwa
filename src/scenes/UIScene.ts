@@ -22,7 +22,7 @@ const MANA_BAR_H = 8
 const XP_BAR_H   = 4
 const MAX_HEARTS  = 10
 const NAVBAR_H    = 44
-const PANEL_RATIO = 0.74   // el panel ocupa el 74% de la altura de pantalla
+const PANEL_RATIO = 0.84   // el panel ocupa el 84% de la altura de pantalla
 
 export class UIScene extends Phaser.Scene {
   private player!: Player
@@ -205,58 +205,43 @@ export class UIScene extends Phaser.Scene {
     } else {
       // BAÚL: coins y chips con botones depositar/retirar; solo activos en base
       const inBase = this.player.inBase
-      const btnColor = (active: boolean) => active ? CSS.yellow : CSS.dim
+      const addCurrencyRow = (
+        y: number,
+        icon: string,
+        labelTxt: string,
+        labelColor: string,
+        canDep: boolean,
+        canWit: boolean,
+        onDep: () => void,
+        onWit: () => void,
+      ) => {
+        extras.push(addLabel(this, 20, y, `${icon} ${labelTxt}`, 12, labelColor).setOrigin(0, 0))
+        const dep = addLabel(this, width - 114, y, '[DEP]', 12, canDep ? CSS.yellow : CSS.dim).setOrigin(0, 0)
+        const wit = addLabel(this, width - 60, y, '[RET]', 12, canWit ? CSS.yellow : CSS.dim).setOrigin(0, 0)
+        if (canDep) dep.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, onDep)
+        if (canWit) wit.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, onWit)
+        extras.push(dep, wit)
+      }
 
-      // Fila coins
-      extras.push(addLabel(this, 20, 62, `◆ ${GameState.stashCoins} coins banco`, 12, CSS.yellow).setOrigin(0, 0))
-      const depCoins = addLabel(this, width - 110, 62, '[DEPOSITAR]', 11, btnColor(inBase && GameState.coins > 0))
-        .setOrigin(0, 0)
-      if (inBase && GameState.coins > 0) {
-        depCoins.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
-          const n = GameState.depositCoins()
-          this.showToast(`Depositadas ${n} ◆ coins`)
-          this.refreshPanel()
-        })
-      }
-      const witCoins = addLabel(this, width - 10, 62, '[RETIRAR]', 11, btnColor(inBase && GameState.stashCoins > 0))
-        .setOrigin(1, 0)
-      if (inBase && GameState.stashCoins > 0) {
-        witCoins.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
-          const n = GameState.withdrawCoins()
-          this.showToast(`Retiradas ${n} ◆ coins`)
-          this.refreshPanel()
-        })
-      }
-      extras.push(depCoins, witCoins)
-
-      // Fila chips
-      extras.push(addLabel(this, 20, 80, `⬡ ${GameState.stashChips} chips banco`, 12, CSS.cyan).setOrigin(0, 0))
-      const depChips = addLabel(this, width - 110, 80, '[DEPOSITAR]', 11, btnColor(inBase && GameState.chips > 0))
-        .setOrigin(0, 0)
-      if (inBase && GameState.chips > 0) {
-        depChips.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
-          const n = GameState.depositChips()
-          this.showToast(`Depositados ${n} ⬡ chips`)
-          this.refreshPanel()
-        })
-      }
-      const witChips = addLabel(this, width - 10, 80, '[RETIRAR]', 11, btnColor(inBase && GameState.stashChips > 0))
-        .setOrigin(1, 0)
-      if (inBase && GameState.stashChips > 0) {
-        witChips.setInteractive({ useHandCursor: true }).on(Phaser.Input.Events.POINTER_DOWN, () => {
-          const n = GameState.withdrawChips()
-          this.showToast(`Retirados ${n} ⬡ chips`)
-          this.refreshPanel()
-        })
-      }
-      extras.push(depChips, witChips)
+      addCurrencyRow(
+        62, '◆', `${GameState.stashCoins} coins banco`, CSS.yellow,
+        inBase && GameState.coins > 0, inBase && GameState.stashCoins > 0,
+        () => { this.showToast(`+${GameState.depositCoins()} ◆ banco`); this.refreshPanel() },
+        () => { this.showToast(`+${GameState.withdrawCoins()} ◆ bolsillo`); this.refreshPanel() },
+      )
+      addCurrencyRow(
+        84, '⬡', `${GameState.stashChips} chips banco`, CSS.cyan,
+        inBase && GameState.chips > 0, inBase && GameState.stashChips > 0,
+        () => { this.showToast(`+${GameState.depositChips()} ⬡ banco`); this.refreshPanel() },
+        () => { this.showToast(`+${GameState.withdrawChips()} ⬡ bolsillo`); this.refreshPanel() },
+      )
 
       if (!inBase) {
-        extras.push(addLabel(this, width / 2, 98, 'Acercate a la BASE para depositar/retirar', 10, CSS.dim).setOrigin(0.5, 0))
+        extras.push(addLabel(this, width / 2, 106, 'Acercate a la BASE para depositar/retirar', 10, CSS.dim).setOrigin(0.5, 0))
       }
     }
 
-    const startY = isBag ? 114 : 110
+    const startY = isBag ? 114 : (this.player.inBase ? 112 : 124)
     const rows: Phaser.GameObjects.GameObject[] = []
     if (items.length === 0) {
       rows.push(addLabel(this, width / 2, startY, 'Vacío', 15, CSS.dim).setOrigin(0.5, 0))
