@@ -246,7 +246,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.cameras.main.setBounds(0, 0, worldW, worldH)
 
     if (this.mode === 'overworld') {
-      this.cameras.main.startFollow(this.player, true, 0.12, 0.12)
+      this.cameras.main.startFollow(this.player, true, 0.10, 0.10)
+      this.cameras.main.setDeadzone(80, 100) // cámara no se mueve si el jugador está en la zona central
       this.buildOverworld()
     } else {
       this.dungeon = generateDungeon(9)

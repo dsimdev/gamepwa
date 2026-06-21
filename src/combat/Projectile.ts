@@ -49,7 +49,7 @@ export class Projectile extends Phaser.Physics.Arcade.Image {
   }
 
   preUpdate(time: number, _delta: number): void {
-    if (time >= this.diesAt) this.kill()
+    if (this.active && time >= this.diesAt) this.kill()
   }
 
   kill(): void {
