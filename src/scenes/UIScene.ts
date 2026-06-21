@@ -22,7 +22,7 @@ const MANA_BAR_H = 8
 const XP_BAR_H   = 4
 const MAX_HEARTS  = 10
 const NAVBAR_H    = 44
-const PANEL_RATIO = 0.84   // el panel ocupa el 84% de la altura de pantalla
+const PANEL_RATIO = 0.45   // el panel ocupa el 45% de la altura de pantalla
 
 export class UIScene extends Phaser.Scene {
   private player!: Player
