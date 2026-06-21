@@ -31,7 +31,6 @@ const OW_H = 1280
 
 const DUNGEON_CHIP_COST = 5
 const TERMINAL_FARM_MS = 3000
-const TERMINAL_FARM_CHIPS = 2
 const TERMINAL_RANGE = 52
 
 type Mode = 'overworld' | 'run'
@@ -64,7 +63,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private dungeonPressure = 0
 
   // Terminales (overworld)
-  private terminalPositions: Array<{ x: number; y: number }> = []
+  private terminals: Array<{
+    x: number; y: number
+    chargesLeft: number; maxCharges: number
+    state: 'active' | 'depleted'
+    bg: Phaser.GameObjects.Rectangle
+    chargesLbl: Phaser.GameObjects.Text
+  }> = []
   private activeFarmIdx = -1
   private farmProgress = 0
   private farmProgressBar?: Phaser.GameObjects.Rectangle
@@ -81,7 +86,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.victoryAchieved = false
     this.minibossDefeated = false
     this.dungeonPressure = 0
-    this.terminalPositions = []
+    this.terminals = []
     this.activeFarmIdx = -1
     this.farmProgress = 0
     this.farmProgressBar = undefined
@@ -258,10 +263,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private spawnOverworldMobs(count?: number): void {
-    const def = ENEMIES['scavenger']
     const scale = this.difficultyScale()
     const n = count ?? (18 + Math.min(8, GameState.depth * 2))
-    const safeDist = 180  // evitar zona de base
+    const safeDist = 180
     const bx = OW_W / 2
     const by = OW_H / 2
     let spawned = 0
@@ -271,7 +275,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       const x = Phaser.Math.Between(WALL + 30, OW_W - WALL - 30)
       const y = Phaser.Math.Between(WALL + 30, OW_H - WALL - 30)
       if (Math.abs(x - bx) < safeDist && Math.abs(y - by) < safeDist) continue
-      const enemy = new Enemy(this, x, y, def, this, scale)
+      // 35% Torretas (ranged), 65% Rebuscadores (melee neutral)
+      const defKey = Math.random() < 0.35 ? 'mage' : 'scavenger'
+      const enemy = new Enemy(this, x, y, ENEMIES[defKey], this, scale)
       enemy.onDeath = e => {
         this.player.gainXp(e.xpReward)
         this.maybeDropLoot(e.x, e.y)
@@ -612,16 +618,17 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- Terminales ---
 
   private addTerminal(x: number, y: number): void {
-    this.terminalPositions.push({ x, y })
+    const maxCharges = 3
     const color = 0x00aaff
-    this.add.rectangle(x, y, 30, 30, color, 0.2).setStrokeStyle(2, color)
+    const bg = this.add.rectangle(x, y, 32, 32, color, 0.2).setStrokeStyle(2, color)
     addLabel(this, x, y, '⬡', 16, CSS.cyan).setOrigin(0.5, 0.5)
-    addLabel(this, x, y + 22, 'TERMINAL', 10, CSS.cyan).setOrigin(0.5, 0)
-    addLabel(this, x, y - 22, `${TERMINAL_FARM_CHIPS}⬡/${TERMINAL_FARM_MS / 1000}s`, 9, '#88aaff').setOrigin(0.5, 1)
+    addLabel(this, x, y - 22, 'TERMINAL', 10, CSS.cyan).setOrigin(0.5, 1)
+    const chargesLbl = addLabel(this, x, y + 22, '⬡'.repeat(maxCharges), 10, CSS.cyan).setOrigin(0.5, 0)
+    this.terminals.push({ x, y, chargesLeft: maxCharges, maxCharges, state: 'active', bg, chargesLbl })
   }
 
   private updateTerminals(delta: number): void {
-    // Detectar daño recibido: interrumpe el farmeo
+    // Detectar daño: interrumpe el farmeo activo
     const hp = this.player.health.current
     if (this.lastPlayerHp >= 0 && hp < this.lastPlayerHp && this.farmProgress > 0) {
       this.farmProgress = 0
@@ -630,9 +637,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     }
     this.lastPlayerHp = hp
 
+    // Terminal activa más cercana
     let nearIdx = -1
-    for (let i = 0; i < this.terminalPositions.length; i++) {
-      const t = this.terminalPositions[i]
+    for (let i = 0; i < this.terminals.length; i++) {
+      const t = this.terminals[i]
+      if (t.state !== 'active') continue
       if (Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y) < TERMINAL_RANGE) {
         nearIdx = i; break
       }
@@ -655,10 +664,10 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.farmProgressBg?.destroy()
       this.activeFarmIdx = nearIdx
       this.farmProgress = 0
-      const t = this.terminalPositions[nearIdx]
+      const t = this.terminals[nearIdx]
       const bw = 52
-      this.farmProgressBg = this.add.rectangle(t.x, t.y - 32, bw, 6, 0x112233)
-      this.farmProgressBar = this.add.rectangle(t.x - bw / 2, t.y - 32, 0, 6, 0x00aaff).setOrigin(0, 0.5)
+      this.farmProgressBg = this.add.rectangle(t.x, t.y - 36, bw, 6, 0x112233)
+      this.farmProgressBar = this.add.rectangle(t.x - bw / 2, t.y - 36, 0, 6, 0x00aaff).setOrigin(0, 0.5)
     }
 
     this.farmProgress += delta
@@ -668,8 +677,33 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     if (this.farmProgress >= TERMINAL_FARM_MS) {
       this.farmProgress = 0
-      GameState.addChips(TERMINAL_FARM_CHIPS)
-      this.events.emit('toast', `+${TERMINAL_FARM_CHIPS} ⬡ chips`)
+      const t = this.terminals[nearIdx]
+      const chips = Phaser.Math.Between(1, 3)
+      GameState.addChips(chips)
+      this.events.emit('toast', `+${chips} ⬡`)
+
+      t.chargesLeft--
+      if (t.chargesLeft <= 0) {
+        // Terminal agotada — offline hasta que respawnee
+        t.state = 'depleted'
+        t.bg.setFillStyle(0x222222, 0.4).setStrokeStyle(2, 0x444444)
+        t.chargesLbl.setText('OFFLINE').setColor('#444466')
+        this.activeFarmIdx = -1
+        this.farmProgressBar?.destroy()
+        this.farmProgressBg?.destroy()
+        this.farmProgressBar = undefined
+        this.farmProgressBg = undefined
+        // Respawn tras 30s
+        this.time.delayedCall(30_000, () => {
+          t.chargesLeft = t.maxCharges
+          t.state = 'active'
+          t.bg.setFillStyle(0x00aaff, 0.2).setStrokeStyle(2, 0x00aaff)
+          t.chargesLbl.setText('⬡'.repeat(t.maxCharges)).setColor(CSS.cyan)
+          this.events.emit('toast', '⬡ Terminal activa')
+        })
+      } else {
+        t.chargesLbl.setText('⬡'.repeat(t.chargesLeft))
+      }
     }
   }
 
