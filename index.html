@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#1a1a2e" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -19,7 +19,20 @@
         -webkit-user-select: none;
         user-select: none;
       }
-      canvas { display: block; touch-action: none; }
+      /* Forzar portrait: rotar el canvas si el dispositivo está en landscape */
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100dvh;
+      }
+      canvas {
+        display: block;
+        touch-action: none;
+        /* Phaser Scale.FIT ya maneja el tamaño — solo asegurar que no haya scroll */
+        max-width: 100dvw;
+        max-height: 100dvh;
+      }
     </style>
   </head>
   <body>
