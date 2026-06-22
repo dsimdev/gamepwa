@@ -6,15 +6,12 @@ import type { Player } from '../entities/Player'
 const SPREAD = [-0.4, -0.2, 0, 0.2, 0.4] // offsets de ángulo del abanico
 const LEASH_RANGE = 420  // si el jugador se aleja más de esto, el boss deja de perseguir
 
-/**
- * Boss: persigue al jugador y periódicamente dispara un abanico de proyectiles.
- * Si el jugador se aleja más de LEASH_RANGE, el boss abandona la persecución
- * y vuelve a vagar (evita que campee la zona de spawn del jugador).
- */
 export class BossAI implements AIBehavior {
   private dir = new Phaser.Math.Vector2()
   private wanderDir = new Phaser.Math.Vector2(1, 0)
   private nextWanderAt = 0
+  private nextVolleyAt = 0
+  private readonly volleyDirs = SPREAD.map(() => new Phaser.Math.Vector2())
 
   update(enemy: Enemy, player: Player, time: number): void {
     if (player.isDead) {
@@ -25,7 +22,6 @@ export class BossAI implements AIBehavior {
     const dist = Phaser.Math.Distance.Between(enemy.x, enemy.y, player.x, player.y)
 
     if (player.inSafeZone || dist > LEASH_RANGE) {
-      // Jugador en zona segura (indetectable) o demasiado lejos — vagar sin perseguir
       if (time > this.nextWanderAt) {
         const angle = player.inSafeZone
           ? Math.atan2(enemy.y - player.y, enemy.x - player.x) + (Math.random() - 0.5) * 1.2
@@ -40,8 +36,14 @@ export class BossAI implements AIBehavior {
     this.dir.set(player.x - enemy.x, player.y - enemy.y).normalize()
     enemy.setVelocity(this.dir.x * enemy.speed, this.dir.y * enemy.speed)
 
-    const base = this.dir.angle()
-    const dirs = SPREAD.map(off => new Phaser.Math.Vector2(Math.cos(base + off), Math.sin(base + off)))
-    enemy.volley(dirs, time)
+    if (time >= this.nextVolleyAt) {
+      const base = this.dir.angle()
+      for (let i = 0; i < SPREAD.length; i++) {
+        const a = base + SPREAD[i]
+        this.volleyDirs[i].set(Math.cos(a), Math.sin(a))
+      }
+      enemy.volley(this.volleyDirs, time)
+      this.nextVolleyAt = time + (enemy.def.shootCooldownMs ?? 1500)
+    }
   }
 }

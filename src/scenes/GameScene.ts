@@ -97,6 +97,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private traps: Array<{
     bg: Phaser.GameObjects.Rectangle
     lbl: Phaser.GameObjects.Text
+    flash: Phaser.GameObjects.Arc
     timer: Phaser.Time.TimerEvent
   }> = []
 
@@ -109,9 +110,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // Skills
   private skillCdUntil: Record<SkillType, number> = { attack: 0, defense: 0, special: 0 }
   private lifeStealUntil = 0
-  private shieldRing?: Phaser.GameObjects.Graphics
+  private shieldRing?: Phaser.GameObjects.Arc
   private shieldRingVisible = false
   private frameCounter = 0
+
+  // Reutilizables — evitan allocs por frame/hit
+  private readonly _tmpVec     = new Phaser.Math.Vector2()
+  private readonly _playerBounds = new Phaser.Geom.Rectangle()
+  private readonly _enemyBounds  = new Phaser.Geom.Rectangle()
+  private readonly _safeDir    = new Phaser.Math.Vector2()
+  private _safeZones: Array<{ x: number; y: number; r: number; rSq: number }> = []
 
   constructor() {
     super({ key: 'GameScene' })
@@ -140,6 +148,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.shieldRingVisible = false
     this.loopTimers = []
     this.frameCounter = 0
+    this.portalZones = []
+    this.doorZones = []
+    this._safeZones = []
   }
 
   shutdown() {
@@ -228,13 +239,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.executeSkill(type, el)
     })
 
-    this.shieldRing = this.add.graphics().setDepth(500)
+    this.shieldRing = this.add.arc(0, 0, 36, 0, 360, false, 0x000000, 0)
+      .setStrokeStyle(3, 0xaa44ff, 0.75)
+      .setDepth(500)
+      .setVisible(false)
 
     this.physics.add.collider(this.player, this.walls)
     this.physics.add.collider(this.player, this.doorBlocks)
     this.physics.add.collider(this.enemies, this.walls)
     this.physics.add.collider(this.enemies, this.doorBlocks)
-    this.physics.add.collider(this.enemies, this.enemies)
+    if (this.mode === 'run') this.physics.add.collider(this.enemies, this.enemies)
     this.physics.add.overlap(this.projectiles, this.enemies, this.onPlayerProjectileHit, undefined, this)
     this.physics.add.overlap(this.enemyProjectiles, this.player, this.onEnemyProjectileHit, undefined, this)
     // Collider (no overlap): los enemigos se frenan contra el jugador y atacan por contacto
@@ -292,6 +306,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.addBuilding('market', OW_W * 0.82, OW_H * 0.18)
     this.addBuilding('repair', OW_W * 0.18, OW_H * 0.82)
     this.addBuilding('hack',   OW_W * 0.82, OW_H * 0.82)
+
+    // Precalcular zonas seguras fijas (se usan en enforceSafeZones cada 9 frames)
+    this._safeZones = [
+      { x: OW_W / 2, y: OW_H / 2, r: BASE_EXCL_R, rSq: BASE_EXCL_R * BASE_EXCL_R },
+      ...this.buildings.map(b => ({ x: b.x, y: b.y, r: BUILDING_SAFE_R, rSq: BUILDING_SAFE_R * BUILDING_SAFE_R })),
+    ]
 
     // Terminales para farmear chips
     this.addTerminal(OW_W * 0.22, OW_H * 0.28)
@@ -437,26 +457,26 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const bg = this.add.rectangle(x, y, SIZE, SIZE, 0xff3300, 0.22)
       .setStrokeStyle(2, 0xff3300, 0.9)
     const lbl = addLabel(this, x, y, '!', 14, '#ff4400').setOrigin(0.5, 0.5)
+    const flash = this.add.arc(x, y, SIZE, 0, 360, false, 0xff3300, 0).setDepth(1)
 
     this.tweens.add({ targets: bg, alpha: 0.62, duration: 550, yoyo: true, repeat: -1 })
 
+    const tdxSq = SIZE * SIZE
     const timer = this.time.addEvent({
       delay: 1400,
       loop: true,
       callback: () => {
         if (this.player.isDead || !bg.active) return
-        if (Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < SIZE) {
+        const tdx = x - this.player.x, tdy = y - this.player.y
+        if (tdx * tdx + tdy * tdy < tdxSq) {
           this.player.takeDamage(1)
-          // Destello de activación
-          const g = this.add.graphics()
-          g.fillStyle(0xff3300, 0.55).fillCircle(x, y, SIZE)
-          this.time.delayedCall(180, () => g.destroy())
+          this.tweens.add({ targets: flash, alpha: { from: 0.7, to: 0 }, duration: 220, ease: 'Cubic.Out' })
           this.events.emit('toast', 'Trampa')
         }
       },
     })
 
-    this.traps.push({ bg, lbl, timer })
+    this.traps.push({ bg, lbl, flash, timer })
   }
 
   // ─── Boss aura ────────────────────────────────────────────────────────────────
@@ -471,32 +491,29 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private pulseBossAura(): void {
     if (!this.boss || this.boss.isDead) { this.clearBossAura(); return }
-    const bx = this.boss.x
-    const by = this.boss.y
-    const g = this.add.graphics()
-    const state = { r: 0 }
+    const bx = this.boss.x, by = this.boss.y
     const maxR = 155
+    // Arc dibujado una sola vez al tamaño final — GPU aplica scale/alpha sin redibujado
+    const ring = this.add.arc(bx, by, maxR, 0, 360, false, 0x000000, 0)
+      .setStrokeStyle(5, 0xff44aa, 1)
+      .setScale(0)
+      .setAlpha(0.72)
     let hit = false
-
+    let lastAuraCheck = 0
     this.tweens.add({
-      targets: state,
-      r: maxR,
-      duration: 950,
-      ease: 'Linear',
+      targets: ring,
+      scaleX: 1, scaleY: 1, alpha: 0,
+      duration: 950, ease: 'Linear',
       onUpdate: () => {
-        g.clear()
-        const alpha = 0.72 * (1 - state.r / maxR)
-        g.lineStyle(5, 0xff44aa, alpha)
-        g.strokeCircle(bx, by, state.r)
-        if (!hit && !this.player.isDead) {
-          const pd = Phaser.Math.Distance.Between(this.player.x, this.player.y, bx, by)
-          if (Math.abs(pd - state.r) < 14) {
-            this.player.takeDamage(1)
-            hit = true
-          }
-        }
+        if (hit || this.player.isDead) return
+        const now = this.time.now
+        if (now - lastAuraCheck < 32) return
+        lastAuraCheck = now
+        const currentR = maxR * ring.scaleX
+        const pd = Phaser.Math.Distance.Between(this.player.x, this.player.y, bx, by)
+        if (Math.abs(pd - currentR) < 14) { this.player.takeDamage(1); hit = true }
       },
-      onComplete: () => g.destroy(),
+      onComplete: () => ring.destroy(),
     })
   }
 
@@ -522,12 +539,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private skillPlasmaAura(): void {
     const RADIUS = 74, DMG = 3
-    this.showAoeEffect(this.player.x, this.player.y, RADIUS, ELEMENT_COLORS.plasma)
+    const px = this.player.x, py = this.player.y
+    this.showAoeEffect(px, py, RADIUS, ELEMENT_COLORS.plasma)
+    this._tmpVec.set(px, py)
     for (const c of this.enemies.getChildren()) {
       const e = c as Enemy
       if (e.isDead) continue
-      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y) <= RADIUS) {
-        e.takeDamage(DMG, new Phaser.Math.Vector2(this.player.x, this.player.y), 'plasma')
+      if (Phaser.Math.Distance.Between(px, py, e.x, e.y) <= RADIUS) {
+        e.takeDamage(DMG, this._tmpVec, 'plasma')
       }
     }
     this.events.emit('toast', 'Aura plasma')
@@ -544,17 +563,19 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const tx = Phaser.Math.Clamp(this.player.x + this.player.facing.x * DIST, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
     const ty = Phaser.Math.Clamp(this.player.y + this.player.facing.y * DIST, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
     const ox = this.player.x, oy = this.player.y
-    // snapshot una sola vez antes del tween — evita getChildren() cada frame durante 200ms
     const dashTargets = this.enemies.getChildren().filter(c => !(c as Enemy).isDead) as Enemy[]
+    const dashHit = new Set<Enemy>()
+    this._tmpVec.set(ox, oy)
     this.player.isDashing = true
     this.player.setTint(ELEMENT_COLORS.plasma)
     this.tweens.add({
       targets: this.player, x: tx, y: ty, duration: 200, ease: 'Cubic.Out',
       onUpdate: () => {
         for (const e of dashTargets) {
-          if (e.isDead) continue
+          if (e.isDead || dashHit.has(e)) continue
           if (Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y) < 34) {
-            e.takeDamage(DMG, new Phaser.Math.Vector2(ox, oy), 'plasma')
+            e.takeDamage(DMG, this._tmpVec, 'plasma')
+            dashHit.add(e)
           }
         }
       },
@@ -567,25 +588,26 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private skillElectroWave(): void {
     const maxR = 200, DMG = 3
-    const g = this.add.graphics()
-    const state = { r: 0 }
     const px = this.player.x, py = this.player.y
+    this._tmpVec.set(px, py)
     const hit = new Set<Enemy>()
-    // snapshot una sola vez antes del tween — evita getChildren() cada frame durante 700ms
     const waveCandidates = this.enemies.getChildren().filter(c => !(c as Enemy).isDead) as Enemy[]
+    const ring = this.add.arc(px, py, maxR, 0, 360, false, 0x000000, 0)
+      .setStrokeStyle(6, ELEMENT_COLORS.electro, 1)
+      .setScale(0)
+      .setAlpha(0.8)
     this.tweens.add({
-      targets: state, r: maxR, duration: 700, ease: 'Cubic.Out',
+      targets: ring, scaleX: 1, scaleY: 1, alpha: 0,
+      duration: 700, ease: 'Cubic.Out',
       onUpdate: () => {
-        g.clear()
-        g.lineStyle(6, ELEMENT_COLORS.electro, 0.8 * (1 - state.r / maxR))
-        g.strokeCircle(px, py, state.r)
+        const currentR = maxR * ring.scaleX
         for (const e of waveCandidates) {
           if (e.isDead || hit.has(e)) continue
           const d = Phaser.Math.Distance.Between(px, py, e.x, e.y)
-          if (Math.abs(d - state.r) < 22) { e.takeDamage(DMG, new Phaser.Math.Vector2(px, py), 'electro'); hit.add(e) }
+          if (Math.abs(d - currentR) < 22) { e.takeDamage(DMG, this._tmpVec, 'electro'); hit.add(e) }
         }
       },
-      onComplete: () => g.destroy(),
+      onComplete: () => ring.destroy(),
     })
     this.events.emit('toast', 'Onda electro')
   }
@@ -607,11 +629,12 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const ty = Phaser.Math.Clamp(this.player.y + this.player.facing.y * DIST, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
     this.player.setPosition(tx, ty)
     this.showAoeEffect(tx, ty, AOE_R, ELEMENT_COLORS.electro)
+    this._tmpVec.set(tx, ty)
     for (const c of this.enemies.getChildren()) {
       const e = c as Enemy
       if (e.isDead) continue
       if (Phaser.Math.Distance.Between(tx, ty, e.x, e.y) <= AOE_R) {
-        e.takeDamage(DMG, new Phaser.Math.Vector2(tx, ty), 'electro')
+        e.takeDamage(DMG, this._tmpVec, 'electro')
       }
     }
     this.events.emit('toast', 'Teleporte')
@@ -623,8 +646,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const DMG = (this.player.stats.rangedDamage + this.player.weapon.damage) + 4
     const target = this.findFarthestEnemy()
     const dir = target
-      ? new Phaser.Math.Vector2(target.x - this.player.x, target.y - this.player.y).normalize()
-      : this.player.facing.clone()
+      ? this._tmpVec.set(target.x - this.player.x, target.y - this.player.y).normalize()
+      : this.player.facing
     const p = this.projectiles.get() as Projectile | null
     if (!p) return
     p.fire(this.player.x, this.player.y, dir, DMG, 'projectile', 'fire', 340, 2200)
@@ -661,20 +684,23 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       callback: () => {
         for (const r of rects) {
           if (!r.active) continue
+          this._tmpVec.set(r.x, r.y)
           for (const c of this.enemies.getChildren()) {
             const e = c as Enemy
             if (e.isDead) continue
-            if (Phaser.Math.Distance.Between(r.x, r.y, e.x, e.y) < 24) {
-              e.takeDamage(TICK_DMG, new Phaser.Math.Vector2(r.x, r.y), 'fire')
+            const wdx = r.x - e.x, wdy = r.y - e.y
+            if (wdx * wdx + wdy * wdy < 576) {  // 24² = 576
+              e.takeDamage(TICK_DMG, this._tmpVec, 'fire')
             }
           }
         }
       },
     })
+    this.loopTimers.push(wallTimer)
 
     this.time.delayedCall(DURATION, () => {
-      wallTimer.destroy()
-      rects.forEach(r => r.destroy())
+      if (!wallTimer.hasDispatched) wallTimer.destroy()
+      rects.forEach(r => { if (r.active) r.destroy() })
       this.player.tempDefBonus = 0
     })
     this.events.emit('toast', `Pared de fuego +${DEF_BONUS}DEF`)
@@ -687,9 +713,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
     let tx: number, ty: number
     if (target) {
-      const dir = new Phaser.Math.Vector2(target.x - this.player.x, target.y - this.player.y).normalize()
-      tx = Phaser.Math.Clamp(target.x - dir.x * 40, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
-      ty = Phaser.Math.Clamp(target.y - dir.y * 40, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
+      this._tmpVec.set(target.x - this.player.x, target.y - this.player.y).normalize()
+      tx = Phaser.Math.Clamp(target.x - this._tmpVec.x * 40, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
+      ty = Phaser.Math.Clamp(target.y - this._tmpVec.y * 40, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
     } else {
       tx = Phaser.Math.Clamp(this.player.x + this.player.facing.x * DIST, WALL + 20, (this.mode === 'overworld' ? OW_W : W) - WALL - 20)
       ty = Phaser.Math.Clamp(this.player.y + this.player.facing.y * DIST, WALL + 20, (this.mode === 'overworld' ? OW_H : H) - WALL - 20)
@@ -792,6 +818,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     for (const t of this.traps) {
       t.bg.destroy()
       t.lbl.destroy()
+      t.flash.destroy()
       t.timer.destroy()
     }
     this.traps = []
@@ -860,10 +887,11 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
    *  - Dungeon: +20% por depth + 10% por respawnCount + 15% por presión de tiempo
    */
   private difficultyScale(): number {
+    const lv = Math.max(0, GameState.level - 1)
     if (this.mode === 'overworld') {
-      return 1 + 0.2 * GameState.depth
+      return 1 + 0.35 * GameState.depth + 0.10 * lv
     }
-    return 1 + 0.2 * GameState.depth + 0.1 * GameState.respawnCount + 0.15 * this.dungeonPressure
+    return 1 + 0.40 * GameState.depth + 0.15 * lv + 0.08 * GameState.respawnCount + 0.12 * this.dungeonPressure
   }
 
   private spawnRoomEnemies(): void {
@@ -963,7 +991,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     const coins = Phaser.Math.Between(15, 25)
     this.pickups.add(new Pickup(this, bx, by - 12, 'coin', 'coin', 0xffd700, coins))
     GameState.depth++
-    GameState.respawnCount++
     GameState.persist()
     this.events.emit('boss', GameState.depth)
 
@@ -1089,22 +1116,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private enforceSafeZones(): void {
-    // Zonas seguras: base + todos los edificios
-    const zones = [
-      { x: OW_W / 2, y: OW_H / 2, r: BASE_EXCL_R },
-      ...this.buildings.map(b => ({ x: b.x, y: b.y, r: BUILDING_SAFE_R })),
-    ]
     for (const c of this.enemies.getChildren()) {
       const e = c as Enemy
       if (e.isDead) continue
-      for (const z of zones) {
-        const dist = Phaser.Math.Distance.Between(e.x, e.y, z.x, z.y)
-        if (dist < z.r) {
-          const dir = new Phaser.Math.Vector2(e.x - z.x, e.y - z.y)
-          if (dir.lengthSq() < 0.01) dir.set(1, 0)
-          dir.normalize()
-          e.setPosition(z.x + dir.x * z.r, z.y + dir.y * z.r)
-          e.setVelocity(dir.x * 60, dir.y * 60)
+      for (const z of this._safeZones) {
+        const dx = e.x - z.x, dy = e.y - z.y
+        if (dx * dx + dy * dy < z.rSq) {
+          if (dx * dx + dy * dy < 0.0001) this._safeDir.set(1, 0)
+          else this._safeDir.set(dx, dy).normalize()
+          e.setPosition(z.x + this._safeDir.x * z.r, z.y + this._safeDir.y * z.r)
+          e.setVelocity(this._safeDir.x * 60, this._safeDir.y * 60)
           break
         }
       }
@@ -1112,8 +1133,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     for (const c of this.enemyProjectiles.getChildren()) {
       const p = c as import('../combat/Projectile').Projectile
       if (!p.active) continue
-      for (const z of zones) {
-        if (Phaser.Math.Distance.Between(p.x, p.y, z.x, z.y) < z.r) { p.kill(); break }
+      for (const z of this._safeZones) {
+        const dx = p.x - z.x, dy = p.y - z.y
+        if (dx * dx + dy * dy < z.rSq) { p.kill(); break }
       }
     }
   }
@@ -1140,14 +1162,16 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private findNearestEnemy(): { enemy: Enemy; dist: number } | null {
     let nearest: Enemy | null = null
-    let minDist = Infinity
+    let minDistSq = Infinity
+    const px = this.player.x, py = this.player.y
     for (const c of this.enemies.getChildren()) {
       const e = c as Enemy
       if (e.isDead) continue
-      const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, e.x, e.y)
-      if (d < minDist) { minDist = d; nearest = e }
+      const dx = e.x - px, dy = e.y - py
+      const dSq = dx * dx + dy * dy
+      if (dSq < minDistSq) { minDistSq = dSq; nearest = e }
     }
-    return nearest ? { enemy: nearest, dist: minDist } : null
+    return nearest ? { enemy: nearest, dist: Math.sqrt(minDistSq) } : null
   }
 
   // --- Terminales ---
@@ -1177,7 +1201,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     for (let i = 0; i < this.terminals.length; i++) {
       const t = this.terminals[i]
       if (t.state !== 'active') continue
-      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y) < TERMINAL_RANGE) {
+      const tdx = t.x - this.player.x, tdy = t.y - this.player.y
+      if (tdx * tdx + tdy * tdy < TERMINAL_RANGE * TERMINAL_RANGE) {
         nearIdx = i; break
       }
     }
@@ -1249,6 +1274,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- Texturas placeholder ---
 
   private createPlaceholderTextures(): void {
+    // Solo genera texturas la primera vez — evita re-upload a VRAM en cada scene.start()
+    if (this.textures.exists('px')) return
+
     const g = this.make.graphics({ x: 0, y: 0 })
     g.fillStyle(0xffffff)
     g.fillRect(0, 0, 1, 1)
@@ -1381,15 +1409,14 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   meleePlayerHit(rect: Phaser.Geom.Rectangle, damage: number, from: Phaser.Math.Vector2): void {
     let hitCount = 0
-    this.enemies.getChildren().forEach(child => {
+    for (const child of this.enemies.getChildren()) {
       const enemy = child as Enemy
-      if (enemy.isDead) return
-      if (Phaser.Geom.Intersects.RectangleToRectangle(rect, enemy.getBounds())) {
+      if (enemy.isDead) continue
+      if (Phaser.Geom.Intersects.RectangleToRectangle(rect, enemy.getBounds(this._enemyBounds))) {
         enemy.takeDamage(damage, from)
         hitCount++
       }
-    })
-    // Lifesteal: cura 1 por cada enemigo golpeado en el swing
+    }
     if (hitCount > 0 && this.time.now < this.lifeStealUntil) this.player.health.add(hitCount)
   }
 
@@ -1409,19 +1436,20 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (p.element === 'plasma') {
       if (p.piercedIds.has(e)) return
       const dmg = Math.max(1, Math.round(p.baseDamage * Math.pow(0.65, p.pierceCount)))
-      e.takeDamage(dmg, new Phaser.Math.Vector2(p.x, p.y), 'plasma')
-      // AoE radial pequeño en el punto de impacto
-      const splashR = 32
+      this._tmpVec.set(p.x, p.y)
+      e.takeDamage(dmg, this._tmpVec, 'plasma')
+      const splashR = 32, splashRSq = splashR * splashR
       this.showAoeEffect(p.x, p.y, splashR, ELEMENT_COLORS.plasma)
-      this.enemies.getChildren().forEach(other => {
+      for (const other of this.enemies.getChildren()) {
         const o = other as Enemy
         if (o !== e && !o.isDead && !p.piercedIds.has(o)) {
-          if (Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y) <= splashR) {
-            o.takeDamage(Math.max(1, Math.round(dmg * 0.5)), new Phaser.Math.Vector2(p.x, p.y), 'plasma')
+          const sdx = p.x - o.x, sdy = p.y - o.y
+          if (sdx * sdx + sdy * sdy <= splashRSq) {
+            o.takeDamage(Math.max(1, Math.round(dmg * 0.5)), this._tmpVec, 'plasma')
             p.piercedIds.add(o)
           }
         }
-      })
+      }
       p.piercedIds.add(e)
       p.pierceCount++
       // Descuenta 1 ammo por impacto exitoso
@@ -1435,12 +1463,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     if (p.isRocket) {
       const AOE_R = 72
       const aoeDmg = Math.max(1, Math.round(p.damage * 0.55))
-      e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), 'fire')
+      this._tmpVec.set(p.x, p.y)
+      e.takeDamage(p.damage, this._tmpVec, 'fire')
       this.showAoeEffect(p.x, p.y, AOE_R, ELEMENT_COLORS.fire)
+      const aoeRSq = AOE_R * AOE_R
       for (const c of this.enemies.getChildren()) {
         const o = c as Enemy
-        if (o !== e && !o.isDead && Phaser.Math.Distance.Between(p.x, p.y, o.x, o.y) <= AOE_R) {
-          o.takeDamage(aoeDmg, new Phaser.Math.Vector2(p.x, p.y), 'fire')
+        if (o !== e && !o.isDead) {
+          const adx = p.x - o.x, ady = p.y - o.y
+          if (adx * adx + ady * ady <= aoeRSq) o.takeDamage(aoeDmg, this._tmpVec, 'fire')
         }
       }
       if (p.element && GameState.consumeAmmo(p.element) && GameState.ammo[p.element] === 0) {
@@ -1451,23 +1482,25 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       return
     }
 
-    e.takeDamage(p.damage, new Phaser.Math.Vector2(p.x, p.y), p.element)
+    this._tmpVec.set(p.x, p.y)
+    e.takeDamage(p.damage, this._tmpVec, p.element)
 
     if (p.element === 'electro') {
-      const chainR = 120
+      const chainR = 120, chainRSq = chainR * chainR
       const chainDmg = Math.max(1, Math.round(p.damage * 0.65))
-      let chainHits = 0
-      this.enemies.getChildren().forEach(other => {
+      let chainHits = 0, chainVisuals = 0
+      this._tmpVec.set(e.x, e.y)
+      for (const other of this.enemies.getChildren()) {
         const o = other as Enemy
         if (o !== e && !o.isDead) {
-          const dist = Phaser.Math.Distance.Between(e.x, e.y, o.x, o.y)
-          if (dist <= chainR) {
-            o.takeDamage(chainDmg, new Phaser.Math.Vector2(e.x, e.y), 'electro')
-            this.showChainEffect(e.x, e.y, o.x, o.y)
+          const cdx = e.x - o.x, cdy = e.y - o.y
+          if (cdx * cdx + cdy * cdy <= chainRSq) {
+            o.takeDamage(chainDmg, this._tmpVec, 'electro')
+            if (chainVisuals < 3) { this.showChainEffect(e.x, e.y, o.x, o.y); chainVisuals++ }
             chainHits++
           }
         }
-      })
+      }
       // Lifesteal: 1 por el golpe primario + 1 por cada cadena
       if (this.time.now < this.lifeStealUntil) this.player.health.add(1 + chainHits)
     } else {
@@ -1529,11 +1562,13 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.player.inBase = Phaser.Math.Distance.Between(this.player.x, this.player.y, bx, by) < 90
       if (this.player.inBase && !this.wasInBase) this.resetEnemiesOnBaseEnter()
       this.wasInBase = this.player.inBase
-      // inSafeZone = base O cualquier edificio
-      const inBld = this.buildings.some(b =>
-        Phaser.Math.Distance.Between(this.player.x, this.player.y, b.x, b.y) < BUILDING_SAFE_R
-      )
-      this.player.inSafeZone = this.player.inBase || inBld
+      // inSafeZone = base O cualquier edificio — se recalcula cada 6 frames (no necesita 60fps)
+      if (this.frameCounter % 6 === 0) {
+        const inBld = this.buildings.some(b =>
+          Phaser.Math.Distance.Between(this.player.x, this.player.y, b.x, b.y) < BUILDING_SAFE_R
+        )
+        this.player.inSafeZone = this.player.inBase || inBld
+      }
     } else {
       this.player.inBase = false
       this.player.inSafeZone = false
@@ -1555,16 +1590,15 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
       this.updateTerminals(delta)
     }
 
-    // Escudo de plasma — solo redibuja cuando hay cambio (evita Graphics.clear() cada frame)
+    // Escudo de plasma — Arc estático: solo setPosition/setVisible, cero redibujado por frame
     if (this.shieldRing) {
       const hasShield = this.player.shieldHp > 0
-      if (hasShield !== this.shieldRingVisible || hasShield) {
-        this.shieldRing.clear()
-        if (hasShield) {
-          this.shieldRing.lineStyle(3, 0xaa44ff, 0.75)
-          this.shieldRing.strokeCircle(this.player.x, this.player.y, 36)
-        }
+      if (hasShield !== this.shieldRingVisible) {
+        this.shieldRing.setVisible(hasShield)
         this.shieldRingVisible = hasShield
+      }
+      if (hasShield) {
+        this.shieldRing.setPosition(this.player.x, this.player.y)
       }
     }
 
@@ -1619,9 +1653,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private checkDoorTransitions(time: number): void {
     if (time < this.transitionLockUntil || !this.current || !this.dungeon) return
-    const pb = this.player.getBounds()
+    this.player.getBounds(this._playerBounds)
     for (const door of this.doorZones) {
-      if (!Phaser.Geom.Intersects.RectangleToRectangle(pb, door.rect)) continue
+      if (!Phaser.Geom.Intersects.RectangleToRectangle(this._playerBounds, door.rect)) continue
       const { dx, dy, opposite } = DIRS[door.dir]
       const next = this.dungeon.rooms.get(keyOf(this.current.x + dx, this.current.y + dy))
       if (!next) return
@@ -1638,9 +1672,9 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
 
   private checkPortals(): void {
     if (this.time.now < this.transitionLockUntil) return
-    const pb = this.player.getBounds()
+    this.player.getBounds(this._playerBounds)
     for (const z of this.portalZones) {
-      if (!Phaser.Geom.Intersects.RectangleToRectangle(pb, z.rect)) continue
+      if (!Phaser.Geom.Intersects.RectangleToRectangle(this._playerBounds, z.rect)) continue
       if (z.kind === 'dungeon') return this.enterDungeon()
       if (z.kind === 'overworld') return this.exitToOverworld()
       if (z.kind === 'stash') this.depositStash()
