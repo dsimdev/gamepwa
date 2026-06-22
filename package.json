@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "gen:tileset": "node scripts/gen-tileset.mjs",
+    "gen:map": "node scripts/gen-overworld-map.mjs",
+    "gen:assets": "node scripts/gen-tileset.mjs && node scripts/gen-overworld-map.mjs"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

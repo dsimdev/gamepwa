@@ -61,6 +61,8 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   private walls!: Phaser.Physics.Arcade.StaticGroup
   private doorBlocks!: Phaser.Physics.Arcade.StaticGroup
 
+  private wallLayer: Phaser.Tilemaps.TilemapLayer | null = null
+
   private dungeon?: Dungeon
   private current?: RoomData
   private biome?: BiomeDef
@@ -289,42 +291,50 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   // --- OVERWORLD (mundo abierto) ---
 
   private buildOverworld(): void {
-    this.buildBorderWalls(OW_W, OW_H)
+    // Tilemap (piso + paredes + objetos leídos desde Tiled)
+    const map = this.make.tilemap({ key: 'overworld' })
+    const tileset = map.addTilesetImage('cyberpunk', 'cyberpunk')!
+    map.createLayer('Ground', tileset, 0, 0)!.setDepth(-10)
+    const wl = map.createLayer('Walls', tileset, 0, 0) as Phaser.Tilemaps.TilemapLayer | null
+    if (wl) {
+      wl.setDepth(-9).setCollision([2])
+      this.wallLayer = wl
+      this.physics.add.collider(this.player, wl)
+      this.physics.add.collider(this.enemies, wl)
+      this.physics.add.overlap(this.projectiles, wl, (p) => (p as Projectile).kill())
+      this.physics.add.overlap(this.enemyProjectiles, wl, (p) => (p as Projectile).kill())
+    }
 
-    // Base: zona segura en el centro del mundo. Spawneás acá.
-    const bx = OW_W / 2
-    const by = OW_H / 2
+    // Posiciones de entidades desde la capa Objects
+    let bx = OW_W / 2, by = OW_H / 2
+    const objLayer = map.getObjectLayer('Objects')
+    if (objLayer) {
+      for (const obj of objLayer.objects) {
+        const x = obj.x ?? 0, y = obj.y ?? 0
+        if (obj.name === 'spawn_player') {
+          bx = x; by = y
+        } else if (obj.name.startsWith('portal_')) {
+          const kind = obj.name.replace('portal_', '') as 'stash' | 'dungeon'
+          const color = kind === 'stash' ? COLORS.neonCyan : COLORS.neonMagenta
+          const label = kind === 'stash' ? 'STASH' : `DUNGEON (${GameState.dungeonCost}⬡)`
+          this.addPortal(kind, x, y, color, label)
+        } else if (obj.name.startsWith('building_')) {
+          this.addBuilding(obj.name.replace('building_', '') as BuildingKind, x, y)
+        } else if (obj.name.startsWith('terminal_')) {
+          this.addTerminal(x, y)
+        }
+      }
+    }
+
     this.player.setPosition(bx, by)
     this.add.rectangle(bx, by, 144, 144, 0x12203a, 0.6).setStrokeStyle(2, COLORS.neonCyan).setDepth(-9)
     addLabel(this, bx, by - 92, 'BASE', 16, CSS.cyan).setOrigin(0.5)
 
-    this.addPortal('stash', bx - 52, by, COLORS.neonCyan, 'STASH')
-    this.addPortal('dungeon', OW_W - 140, by - 200, COLORS.neonMagenta, `DUNGEON (${GameState.dungeonCost}⬡)`)
-
-    // Edificios dispersos — zonas seguras (sin regen), cada uno abre un panel de servicio
-    this.addBuilding('health', OW_W * 0.18, OW_H * 0.18)
-    this.addBuilding('market', OW_W * 0.82, OW_H * 0.18)
-    this.addBuilding('repair', OW_W * 0.18, OW_H * 0.82)
-    this.addBuilding('hack',   OW_W * 0.82, OW_H * 0.82)
-
-    // Precalcular zonas seguras fijas (se usan en enforceSafeZones cada 9 frames)
+    // Zonas seguras precalculadas (después de addBuilding)
     this._safeZones = [
-      { x: OW_W / 2, y: OW_H / 2, r: BASE_EXCL_R, rSq: BASE_EXCL_R * BASE_EXCL_R },
+      { x: bx, y: by, r: BASE_EXCL_R, rSq: BASE_EXCL_R * BASE_EXCL_R },
       ...this.buildings.map(b => ({ x: b.x, y: b.y, r: BUILDING_SAFE_R, rSq: BUILDING_SAFE_R * BUILDING_SAFE_R })),
     ]
-
-    // Terminales para farmear chips
-    this.addTerminal(OW_W * 0.22, OW_H * 0.28)
-    this.addTerminal(OW_W * 0.78, OW_H * 0.32)
-    this.addTerminal(OW_W * 0.35, OW_H * 0.72)
-
-    const rocks: Array<[number, number, number, number]> = [
-      [240, 180, 80, 80],
-      [OW_W - 280, OW_H - 180, 100, 60],
-      [320, OW_H - 220, 60, 120],
-      [OW_W - 220, 260, 72, 72],
-    ]
-    for (const [x, y, w, h] of rocks) this.addWall(x, y, w, h)
 
     // Mobs — neutrales; se provocan al ser atacados o al farmear terminal
     this.spawnOverworldMobs()
@@ -774,12 +784,6 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
     this.buildings.push({ kind, x, y })
   }
 
-  private buildBorderWalls(w: number, h: number): void {
-    this.addWall(w / 2, WALL / 2, w, WALL)
-    this.addWall(w / 2, h - WALL / 2, w, WALL)
-    this.addWall(WALL / 2, h / 2, WALL, h)
-    this.addWall(w - WALL / 2, h / 2, WALL, h)
-  }
 
   // --- RUN: construcción de salas ---
 
@@ -801,6 +805,7 @@ export class GameScene extends Phaser.Scene implements CombatContext, EnemyConte
   }
 
   private clearRoom(): void {
+    if (this.wallLayer) { this.wallLayer.destroy(); this.wallLayer = null }
     this.walls.clear(true, true)
     this.doorBlocks.clear(true, true)
     this.enemies.clear(true, true)
