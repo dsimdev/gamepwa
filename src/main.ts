@@ -12,8 +12,10 @@ const showError = (msg: string) => {
 window.addEventListener('error', (e) => showError(`${e.message}\n${e.filename}:${e.lineno}`))
 window.addEventListener('unhandledrejection', (e) => showError(String(e.reason)))
 
+const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+
 const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.AUTO,
+  type: Phaser.WEBGL,  // WebGL siempre; Canvas fallback es 5-10x más lento
   backgroundColor: '#0a0a16',
   antialias: false,
   roundPixels: true,
@@ -22,11 +24,15 @@ const config: Phaser.Types.Core.GameConfig = {
     autoCenter: Phaser.Scale.CENTER_BOTH,
     width: 360,
     height: 760,
+    autoRound: true,   // evita cálculos de sub-píxel en mobile
   },
   input: {
     activePointers: 3,  // multi-touch: joystick + skill + skill simultáneos
   },
-  fps: { target: 60 },
+  fps: {
+    target: isMobile ? 30 : 60,  // 30fps en mobile = mitad de carga GPU, evita thermal throttle
+    forceSetTimeOut: false,
+  },
   physics: {
     default: 'arcade',
     arcade: {

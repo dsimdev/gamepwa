@@ -44,6 +44,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
   private nextAttackAt = 0
   private invulnUntil = 0
   private lastCombatAt = -COMBAT_WINDOW_MS
+  private readonly _meleeRect = new Phaser.Geom.Rectangle()
+  private readonly _meleeFrom = new Phaser.Math.Vector2()
 
   constructor(scene: Phaser.Scene, x: number, y: number, input: InputManager, combat: CombatContext) {
     super(scene, x, y, 'player')
@@ -78,9 +80,9 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     this.lastCombatAt = this.scene.time.now
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     const baseBonus = this.inBase ? 2.0 + GameState.baseRegenBonus : 1.0
-    const regenMult = this.inCombat ? COMBAT_REGEN_MULT : baseBonus
+    const regenMult = (time - this.lastCombatAt < COMBAT_WINDOW_MS) ? COMBAT_REGEN_MULT : baseBonus
     this.health.regenPerSec = this.stats.hpRegen * regenMult
     this.mana.regenPerSec = this.stats.manaRegen * regenMult
     this.health.update(delta)
@@ -96,7 +98,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
       }
     }
 
-    this.setAlpha(this.scene.time.now < this.invulnUntil ? 0.5 : 1)
+    this.setAlpha(time < this.invulnUntil ? 0.5 : 1)
   }
 
   /** Llamado por GameScene cuando hay un enemigo en rango (auto-ataque por proximidad). */
@@ -116,7 +118,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
       if (!this.combat.consumeAmmo(el)) return
       this.nextAttackAt = now + cooldown
       const dmg = this.stats.rangedDamage + this.weapon.damage
-      this.combat.spawnPlayerProjectile(this.x, this.y, this.facing.clone(), dmg, el)
+      this.combat.spawnPlayerProjectile(this.x, this.y, this.facing, dmg, el)
       this.degradeWeapon()
     }
   }
@@ -138,9 +140,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite implements Damageable {
     const horizontal = Math.abs(this.facing.x) >= Math.abs(this.facing.y)
     const w = horizontal ? range * 2 : MELEE_WIDTH
     const h = horizontal ? MELEE_WIDTH : range * 2
-    const rect = new Phaser.Geom.Rectangle(cx - w / 2, cy - h / 2, w, h)
+    this._meleeRect.setTo(cx - w / 2, cy - h / 2, w, h)
+    this._meleeFrom.set(this.x, this.y)
     const dmg = this.stats.meleeDamage + this.weapon.damage
-    this.combat.meleePlayerHit(rect, dmg, new Phaser.Math.Vector2(this.x, this.y))
+    this.combat.meleePlayerHit(this._meleeRect, dmg, this._meleeFrom)
   }
 
   takeDamage(amount: number, _knockbackFrom?: Phaser.Math.Vector2, _element?: ElementType): void {

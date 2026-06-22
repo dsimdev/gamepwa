@@ -34,6 +34,11 @@ export class UIScene extends Phaser.Scene {
   private pointsText!: Phaser.GameObjects.Text
   private lastHp    = -1
   private lastLevel = -1
+  private lastMana  = -1
+  private lastXp    = -1
+
+  private toastPool: Phaser.GameObjects.Text[] = []
+  private readonly TOAST_POOL_MAX = 6
 
   private panel?: Phaser.GameObjects.Container
   private backdrop?: Phaser.GameObjects.Rectangle
@@ -51,6 +56,9 @@ export class UIScene extends Phaser.Scene {
     this.info      = data.info ?? ''
     this.lastLevel = -1
     this.lastHp    = -1
+    this.lastMana  = -1
+    this.lastXp    = -1
+    this.toastPool = []
   }
 
   create() {
@@ -75,6 +83,13 @@ export class UIScene extends Phaser.Scene {
 
     // Info label (biome / mode) — debajo de la barra de maná
     addLabel(this, width / 2, 48, this.info, 12, CSS.dim).setOrigin(0.5, 0)
+
+    // Pre-calentar pool de toasts para evitar allocs en combate
+    for (let i = 0; i < this.TOAST_POOL_MAX; i++) {
+      this.toastPool.push(
+        addLabel(this, 0, 0, '', 16, CSS.light).setOrigin(0.5, 1).setDepth(6000).setVisible(false)
+      )
+    }
 
     this.buildNavBar()
     this.setupTouchControls()
@@ -504,7 +519,7 @@ export class UIScene extends Phaser.Scene {
       { key: 'terminalCharges', label: 'Capacidad Terminal', desc: '+1 carga/terminal',  max: 2 },
       { key: 'terminalYield',   label: 'Rendimiento Datos',  desc: '+1 chip/farm',       max: 3 },
       { key: 'farmSpeed',       label: 'Velocidad Hackeo',   desc: '-600ms/farm',         max: 3 },
-      { key: 'dungeonDiscount', label: 'Acceso Dungeon',     desc: '-1 ⬡ entrada',       max: 4 },
+      { key: 'dungeonDiscount', label: 'Acceso Dungeon',     desc: '-8 ⬡ entrada',       max: 4 },
       { key: 'baseRegen',       label: 'Nanobots Base',      desc: '+0.5x regen base',   max: 3 },
     ]
 
@@ -611,8 +626,19 @@ export class UIScene extends Phaser.Scene {
       this.drawHealth(hp, this.player.health.max)
       this.lastHp = hp
     }
-    this.manaBar.width = MANA_BAR_W * this.player.mana.ratio
-    this.xpBar.width   = this.scale.width * this.player.progression.xpRatio
+
+    const mana = Math.round(this.player.mana.current)
+    if (mana !== this.lastMana) {
+      this.manaBar.width = MANA_BAR_W * this.player.mana.ratio
+      this.lastMana = mana
+    }
+
+    const xpRatio = this.player.progression.xpRatio
+    const xpW = Math.round(this.scale.width * xpRatio)
+    if (xpW !== this.lastXp) {
+      this.xpBar.width = xpW
+      this.lastXp = xpW
+    }
 
     if (this.player.level !== this.lastLevel) {
       if (this.lastLevel !== -1) this.showLevelUp(this.player.level)
@@ -654,16 +680,29 @@ export class UIScene extends Phaser.Scene {
     ev.off('boss')
     ev.off('openBuilding')
     ev.off('closeBuilding')
-    ev.off('useSkill')
   }
 
   // ─── Feedback ───────────────────────────────────────────────────────────────
 
   private showToast(text: string) {
     const { width, height } = this.scale
-    const t = addLabel(this, width / 2, height - NAVBAR_H - 20, text, 16, CSS.light)
-      .setOrigin(0.5, 1).setDepth(6000)
-    this.tweens.add({ targets: t, y: t.y - 28, alpha: 0, duration: 1000, ease: 'Cubic.Out', onComplete: () => t.destroy() })
+    const ty = height - NAVBAR_H - 20
+    let t: Phaser.GameObjects.Text
+    if (this.toastPool.length > 0) {
+      t = this.toastPool.pop()!
+      t.setPosition(width / 2, ty).setText(text).setAlpha(1).setVisible(true)
+    } else {
+      t = addLabel(this, width / 2, ty, text, 16, CSS.light).setOrigin(0.5, 1).setDepth(6000)
+    }
+    this.tweens.add({
+      targets: t, y: ty - 28, alpha: 0, duration: 1000, ease: 'Cubic.Out',
+      onComplete: () => {
+        if (!t.active) return
+        t.setVisible(false).setPosition(0, 0)
+        if (this.toastPool.length < this.TOAST_POOL_MAX) this.toastPool.push(t)
+        else t.destroy()
+      },
+    })
   }
 
   private showLevelUp(level: number) {

@@ -21,10 +21,10 @@ export class Pickup extends Phaser.Physics.Arcade.Sprite {
     scene.tweens.add({
       targets: this,
       y: y - 6,
-      duration: 600,
+      duration: 700,
       yoyo: true,
       repeat: -1,
-      ease: 'Sine.InOut',
+      ease: 'Linear',
     })
   }
 }

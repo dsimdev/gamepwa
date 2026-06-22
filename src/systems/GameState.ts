@@ -46,7 +46,9 @@ class GameStateClass {
     baseRegen:       3,
   }
 
-  get dungeonCost(): number { return Math.max(1, 5 - this.hackUpgrades.dungeonDiscount) }
+  get dungeonCost(): number {
+    return Math.max(10, 50 + this.depth * 20 - this.hackUpgrades.dungeonDiscount * 8)
+  }
   get baseRegenBonus(): number { return this.hackUpgrades.baseRegen * 0.5 }
 
   hackUpgradeCost(key: keyof typeof this.hackUpgrades): number {

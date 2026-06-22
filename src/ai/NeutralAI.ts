@@ -12,8 +12,9 @@ export class NeutralAI implements AIBehavior {
   update(enemy: Enemy, player: Player, time: number): void {
     if (enemy.provoked) {
       this.chaseDir.set(player.x - enemy.x, player.y - enemy.y)
-      const dist = this.chaseDir.length()
-      if (dist > 0.1) this.chaseDir.normalize()
+      const distSq = this.chaseDir.lengthSq()
+      if (distSq > 0.01) this.chaseDir.normalize()
+      const dist = Math.sqrt(distSq)
       const sr = enemy.def.shootRange
       if (sr) {
         // Mob ranged provocado: mantiene distancia y dispara

@@ -24,8 +24,22 @@
   </head>
   <body>
     <script>
-      // Fuerza DPR=1 ANTES de que Phaser lo lea — evita canvas 3x en phones de alta densidad
-      try { Object.defineProperty(window, 'devicePixelRatio', { get: () => 1, configurable: true }) } catch(e) {}
+      // Fuerza DPR=1 ANTES de que Phaser lo lea — evita canvas 3x en phones de alta densidad.
+      // Si window no es configurable, parchea el prototype de Window como fallback.
+      ;(function() {
+        function forceDPR1() {
+          try {
+            Object.defineProperty(window, 'devicePixelRatio', { get: () => 1, configurable: true })
+          } catch(e) {}
+          // Verificar que funcionó; si no, parchear en el prototipo
+          if (window.devicePixelRatio !== 1) {
+            try {
+              Object.defineProperty(Object.getPrototypeOf(window), 'devicePixelRatio', { get: () => 1, configurable: true })
+            } catch(e) {}
+          }
+        }
+        forceDPR1()
+      })()
     </script>
     <script type="module" src="/src/main.ts"></script>
   </body>

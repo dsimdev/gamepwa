@@ -9,6 +9,31 @@ import { ELEMENT_COLORS, ELEMENT_CSS } from '../data/elements'
 import type { ElementType } from '../data/elements'
 import { FONT_FAMILY } from '../ui/theme'
 
+// Pool de textos flotantes por escena — evita crear/destruir Text en cada golpe
+const _floatingPools = new WeakMap<Phaser.Scene, Phaser.GameObjects.Text[]>()
+const POOL_MAX = 12
+
+function acquireFloating(scene: Phaser.Scene, x: number, y: number, text: string, color: string): Phaser.GameObjects.Text {
+  const pool = _floatingPools.get(scene) ?? []
+  _floatingPools.set(scene, pool)
+  while (pool.length > 0) {
+    const t = pool.pop()!
+    if (t.active) {
+      t.setPosition(x, y).setText(text).setColor(color).setAlpha(1).setVisible(true)
+      return t
+    }
+  }
+  return scene.add.text(x, y, text, { fontFamily: FONT_FAMILY, fontStyle: 'bold', fontSize: '14px', color })
+}
+
+function releaseFloating(scene: Phaser.Scene, t: Phaser.GameObjects.Text): void {
+  if (!t.active) return
+  t.setVisible(false)
+  const pool = _floatingPools.get(scene) ?? []
+  if (pool.length < POOL_MAX) pool.push(t)
+  else t.destroy()
+}
+
 const KNOCKBACK = 160
 const DEATH_MS = 180
 
@@ -17,6 +42,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   readonly speed: number
   readonly contactDamage: number
   readonly xpReward: number
+  private readonly scaledProjectileDmg: number
   health: Resource
 
   onDeath?: (enemy: Enemy) => void
@@ -29,6 +55,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   private context: EnemyContext
   private nextShotAt = 0
   private deathHandled = false
+  private readonly _knockbackDir = new Phaser.Math.Vector2()
 
   private hpBarBg!: Phaser.GameObjects.Rectangle
   private hpBarFill!: Phaser.GameObjects.Rectangle
@@ -38,9 +65,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
     scene.add.existing(this)
     scene.physics.add.existing(this)
 
+    // El daño escala más suave que la vida (^0.6) para que el desafío sea aguantar, no morir de un toque
+    const dmgScale = Math.pow(scale, 0.6)
     this.def = def
     this.speed = def.speed
-    this.contactDamage = def.contactDamage
+    this.contactDamage = Math.max(1, Math.round(def.contactDamage * dmgScale))
+    this.scaledProjectileDmg = def.projectileDamage !== undefined
+      ? Math.max(1, Math.round(def.projectileDamage * dmgScale))
+      : 1
     this.xpReward = Math.round(def.xpReward * scale)
     this.health = new Resource(Math.max(1, Math.round(def.hp * scale)))
     this.behavior = createBehavior(def.behavior)
@@ -74,8 +106,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   volley(dirs: Phaser.Math.Vector2[], time: number): void {
     if (time < this.nextShotAt) return
     this.nextShotAt = time + (this.def.shootCooldownMs ?? 1500)
-    const dmg = this.def.projectileDamage ?? 1
-    for (const d of dirs) this.context.spawnEnemyProjectile(this.x, this.y, d, dmg)
+    for (const d of dirs) this.context.spawnEnemyProjectile(this.x, this.y, d, this.scaledProjectileDmg)
   }
 
   tryShoot(dir: Phaser.Math.Vector2, time: number): void {
@@ -106,8 +137,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
     })
 
     if (knockbackFrom) {
-      const dir = new Phaser.Math.Vector2(this.x - knockbackFrom.x, this.y - knockbackFrom.y).normalize()
-      this.setVelocity(dir.x * KNOCKBACK, dir.y * KNOCKBACK)
+      this._knockbackDir.set(this.x - knockbackFrom.x, this.y - knockbackFrom.y).normalize()
+      this.setVelocity(this._knockbackDir.x * KNOCKBACK, this._knockbackDir.y * KNOCKBACK)
     }
 
     if (this.isDead) this.die()
@@ -125,16 +156,11 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
   }
 
   private showFloating(text: string, color: string): void {
-    const t = this.scene.add.text(this.x, this.y - this.def.size / 2 - 16, text, {
-      fontFamily: FONT_FAMILY,
-      fontStyle: 'bold',
-      fontSize: '14px',
-      color,
-      resolution: 2,
-    })
+    const y = this.y - this.def.size / 2 - 16
+    const t = acquireFloating(this.scene, this.x, y, text, color)
     this.scene.tweens.add({
-      targets: t, y: t.y - 10, alpha: 0, duration: 600, ease: 'Cubic.Out',
-      onComplete: () => t.destroy(),
+      targets: t, y: y - 10, alpha: 0, duration: 600, ease: 'Cubic.Out',
+      onComplete: () => releaseFloating(this.scene, t),
     })
   }
 
@@ -150,5 +176,13 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite implements Damageable {
       targets: this, alpha: 0, scale: 0.3, duration: DEATH_MS,
       onComplete: () => this.destroy(),
     })
+  }
+
+  // Garantiza que las HP bars se destruyan en CUALQUIER ruta de destrucción
+  // (die(), enemies.clear(true,true), clearRoom(), etc.)
+  destroy(fromScene = false): void {
+    if (this.hpBarBg?.active)   this.hpBarBg.destroy()
+    if (this.hpBarFill?.active) this.hpBarFill.destroy()
+    super.destroy(fromScene)
   }
 }
