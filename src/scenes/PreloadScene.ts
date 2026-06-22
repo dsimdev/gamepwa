@@ -7,9 +7,8 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   preload() {
-    // TODO: cargar tilemaps, tilesets y sprites aquí
-    // this.load.tilemapTiledJSON('map', 'assets/tilemaps/world.json')
-    // this.load.spritesheet('player', 'assets/sprites/player.png', { frameWidth: 16, frameHeight: 16 })
+    this.load.image('cyberpunk', 'assets/tilesets/cyberpunk.png')
+    this.load.tilemapTiledJSON('overworld', 'assets/maps/overworld.json')
   }
 
   create() {
